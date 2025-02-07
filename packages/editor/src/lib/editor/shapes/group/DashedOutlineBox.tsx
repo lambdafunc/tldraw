@@ -1,15 +1,13 @@
-import { Box2d } from '../../../primitives/Box2d'
+import { useValue } from '@tldraw/state-react'
+import { useEditor } from '../../../hooks/useEditor'
+import { Box } from '../../../primitives/Box'
 import { getPerfectDashProps } from '../shared/getPerfectDashProps'
 
-export function DashedOutlineBox({
-	bounds,
-	zoomLevel,
-	className,
-}: {
-	bounds: Box2d
-	zoomLevel: number
-	className: string
-}) {
+export function DashedOutlineBox({ bounds, className }: { bounds: Box; className: string }) {
+	const editor = useEditor()
+
+	const zoomLevel = useValue('zoom level', () => editor.getZoomLevel(), [editor])
+
 	return (
 		<g className={className} pointerEvents="none" strokeLinecap="round" strokeLinejoin="round">
 			{bounds.sides.map((side, i) => {

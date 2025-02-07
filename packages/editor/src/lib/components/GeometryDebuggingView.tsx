@@ -1,7 +1,9 @@
-import { track } from '@tldraw/state'
+import { track } from '@tldraw/state-react'
 import { modulate } from '@tldraw/utils'
 import { useEffect, useState } from 'react'
 import { useEditor } from '../hooks/useEditor'
+import { Geometry2d } from '../primitives/geometry/Geometry2d'
+import { Group2d } from '../primitives/geometry/Group2d'
 
 function useTick(isEnabled = true) {
 	const [_, setTick] = useState(0)
@@ -29,9 +31,9 @@ export const GeometryDebuggingView = track(function GeometryDebuggingView({
 
 	useTick(showClosestPointOnOutline)
 
+	const zoomLevel = editor.getZoomLevel()
+	const renderingShapes = editor.getRenderingShapes()
 	const {
-		zoomLevel,
-		renderingShapes,
 		inputs: { currentPagePoint },
 	} = editor
 
@@ -70,13 +72,14 @@ export const GeometryDebuggingView = track(function GeometryDebuggingView({
 						strokeLinejoin="round"
 					>
 						{showStroke && (
-							<path
-								stroke="red"
-								strokeWidth="2"
-								fill="none"
+							<g
+								stroke={geometry.debugColor ?? 'red'}
 								opacity="1"
-								d={geometry.toSimpleSvgPath()}
-							/>
+								strokeWidth={2 / zoomLevel}
+								fill="none"
+							>
+								<GeometryStroke geometry={geometry} />
+							</g>
 						)}
 						{showVertices &&
 							vertices.map((v, i) => (
@@ -84,10 +87,10 @@ export const GeometryDebuggingView = track(function GeometryDebuggingView({
 									key={`v${i}`}
 									cx={v.x}
 									cy={v.y}
-									r="2"
+									r={2 / zoomLevel}
 									fill={`hsl(${modulate(i, [0, vertices.length - 1], [120, 200])}, 100%, 50%)`}
 									stroke="black"
-									strokeWidth="1"
+									strokeWidth={1 / zoomLevel}
 								/>
 							))}
 						{showClosestPointOnOutline && dist < 150 && (
@@ -98,7 +101,7 @@ export const GeometryDebuggingView = track(function GeometryDebuggingView({
 								y2={pointInShapeSpace.y}
 								opacity={1 - dist / 150}
 								stroke={hitInside ? 'goldenrod' : 'dodgerblue'}
-								strokeWidth="2"
+								strokeWidth={2 / zoomLevel}
 							/>
 						)}
 					</g>
@@ -107,3 +110,17 @@ export const GeometryDebuggingView = track(function GeometryDebuggingView({
 		</svg>
 	)
 })
+
+function GeometryStroke({ geometry }: { geometry: Geometry2d }) {
+	if (geometry instanceof Group2d) {
+		return (
+			<>
+				{[...geometry.children, ...geometry.ignoredChildren].map((child, i) => (
+					<GeometryStroke geometry={child} key={i} />
+				))}
+			</>
+		)
+	}
+
+	return <path d={geometry.toSimpleSvgPath()} />
+}
