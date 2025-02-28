@@ -1,30 +1,33 @@
-import { Trigger } from '@radix-ui/react-dropdown-menu'
 import { SharedStyle, StyleProp } from '@tldraw/editor'
-import classNames from 'classnames'
 import * as React from 'react'
+import { StyleValuesForUi } from '../../../styles'
 import { TLUiTranslationKey } from '../../hooks/useTranslation/TLUiTranslationKey'
 import { useTranslation } from '../../hooks/useTranslation/useTranslation'
-import { TLUiIconType } from '../../icon-types'
-import { Button } from '../primitives/Button'
-import * as DropdownMenu from '../primitives/DropdownMenu'
-import { StyleValuesForUi } from './styles'
+import { TldrawUiButton } from '../primitives/Button/TldrawUiButton'
+import { TldrawUiButtonIcon } from '../primitives/Button/TldrawUiButtonIcon'
+import {
+	TldrawUiDropdownMenuContent,
+	TldrawUiDropdownMenuItem,
+	TldrawUiDropdownMenuRoot,
+	TldrawUiDropdownMenuTrigger,
+} from '../primitives/TldrawUiDropdownMenu'
 
 interface DoubleDropdownPickerProps<T extends string> {
 	uiTypeA: string
 	uiTypeB: string
-	label: TLUiTranslationKey
-	labelA: TLUiTranslationKey
-	labelB: TLUiTranslationKey
+	label: TLUiTranslationKey | Exclude<string, TLUiTranslationKey>
+	labelA: TLUiTranslationKey | Exclude<string, TLUiTranslationKey>
+	labelB: TLUiTranslationKey | Exclude<string, TLUiTranslationKey>
 	itemsA: StyleValuesForUi<T>
 	itemsB: StyleValuesForUi<T>
 	styleA: StyleProp<T>
 	styleB: StyleProp<T>
 	valueA: SharedStyle<T>
 	valueB: SharedStyle<T>
-	onValueChange: (style: StyleProp<T>, value: T, squashing: boolean) => void
+	onValueChange(style: StyleProp<T>, value: T): void
 }
 
-export const DoubleDropdownPicker = React.memo(function DoubleDropdownPicker<T extends string>({
+function DoubleDropdownPickerInner<T extends string>({
 	label,
 	uiTypeA,
 	uiTypeB,
@@ -60,90 +63,83 @@ export const DoubleDropdownPicker = React.memo(function DoubleDropdownPicker<T e
 			<div title={msg(label)} className="tlui-style-panel__double-select-picker-label">
 				{msg(label)}
 			</div>
-			<DropdownMenu.Root id={`style panel ${uiTypeA} A`}>
-				<Trigger asChild>
-					<Button
-						data-testid={`style.${uiTypeA}`}
-						title={
-							msg(labelA) +
-							' — ' +
-							(valueA === null
-								? msg('style-panel.mixed')
-								: msg(`${uiTypeA}-style.${valueA}` as TLUiTranslationKey))
-						}
-						icon={iconA as any}
-						invertIcon
-						smallIcon
-					/>
-				</Trigger>
-				<DropdownMenu.Content side="bottom" align="end" sideOffset={0} alignOffset={-2}>
-					<div
-						className={classNames('tlui-button-grid', {
-							'tlui-button-grid__two': itemsA.length < 4,
-							'tlui-button-grid__four': itemsA.length >= 4,
-						})}
-					>
-						{itemsA.map((item) => {
-							return (
-								<DropdownMenu.Item
-									className="tlui-button-grid__button"
-									title={
-										msg(labelA) +
-										' — ' +
-										msg(`${uiTypeA}-style.${item.value}` as TLUiTranslationKey)
-									}
-									data-testid={`style.${uiTypeA}.${item.value}`}
-									key={item.value}
-									icon={item.icon as TLUiIconType}
-									onClick={() => onValueChange(styleA, item.value, false)}
-									invertIcon
-								/>
-							)
-						})}
-					</div>
-				</DropdownMenu.Content>
-			</DropdownMenu.Root>
-			<DropdownMenu.Root id={`style panel ${uiTypeB}`}>
-				<Trigger asChild>
-					<Button
-						data-testid={`style.${uiTypeB}`}
-						title={
-							msg(labelB) +
-							' — ' +
-							(valueB === null
-								? msg('style-panel.mixed')
-								: msg(`${uiTypeB}-style.${valueB}` as TLUiTranslationKey))
-						}
-						icon={iconB as any}
-						smallIcon
-					/>
-				</Trigger>
-				<DropdownMenu.Content side="bottom" align="end" sideOffset={0} alignOffset={-2}>
-					<div
-						className={classNames('tlui-button-grid', {
-							'tlui-button-grid__two': itemsA.length < 4,
-							'tlui-button-grid__four': itemsA.length >= 4,
-						})}
-					>
-						{itemsB.map((item) => {
-							return (
-								<DropdownMenu.Item
-									className="tlui-button-grid__button"
-									title={
-										msg(labelB) +
-										' — ' +
-										msg(`${uiTypeB}-style.${item.value}` as TLUiTranslationKey)
-									}
-									data-testid={`style.${uiTypeB}.${item.value}`}
-									key={item.value}
-									icon={item.icon as TLUiIconType}
-									onClick={() => onValueChange(styleB, item.value, false)}
-								/>
-							)
-						})}
-					</div>
-				</DropdownMenu.Content>
-			</DropdownMenu.Root>
+			<div className="tlui-buttons__horizontal">
+				<TldrawUiDropdownMenuRoot id={`style panel ${uiTypeA} A`}>
+					<TldrawUiDropdownMenuTrigger>
+						<TldrawUiButton
+							type="icon"
+							data-testid={`style.${uiTypeA}`}
+							title={
+								msg(labelA) +
+								' — ' +
+								(valueA === null || valueA.type === 'mixed'
+									? msg('style-panel.mixed')
+									: msg(`${uiTypeA}-style.${valueA.value}` as TLUiTranslationKey))
+							}
+						>
+							<TldrawUiButtonIcon icon={iconA} small invertIcon />
+						</TldrawUiButton>
+					</TldrawUiDropdownMenuTrigger>
+					<TldrawUiDropdownMenuContent side="left" align="center" sideOffset={80} alignOffset={0}>
+						<div className="tlui-buttons__grid">
+							{itemsA.map((item, i) => {
+								return (
+									<TldrawUiDropdownMenuItem key={i} data-testid={`style.${uiTypeA}.${item.value}`}>
+										<TldrawUiButton
+											type="icon"
+											key={item.value}
+											onClick={() => onValueChange(styleA, item.value)}
+											title={`${msg(labelA)} — ${msg(`${uiTypeA}-style.${item.value}`)}`}
+										>
+											<TldrawUiButtonIcon icon={item.icon} invertIcon />
+										</TldrawUiButton>
+									</TldrawUiDropdownMenuItem>
+								)
+							})}
+						</div>
+					</TldrawUiDropdownMenuContent>
+				</TldrawUiDropdownMenuRoot>
+				<TldrawUiDropdownMenuRoot id={`style panel ${uiTypeB}`}>
+					<TldrawUiDropdownMenuTrigger>
+						<TldrawUiButton
+							type="icon"
+							data-testid={`style.${uiTypeB}`}
+							title={
+								msg(labelB) +
+								' — ' +
+								(valueB === null || valueB.type === 'mixed'
+									? msg('style-panel.mixed')
+									: msg(`${uiTypeB}-style.${valueB.value}` as TLUiTranslationKey))
+							}
+						>
+							<TldrawUiButtonIcon icon={iconB} small />
+						</TldrawUiButton>
+					</TldrawUiDropdownMenuTrigger>
+					<TldrawUiDropdownMenuContent side="left" align="center" sideOffset={116} alignOffset={0}>
+						<div className="tlui-buttons__grid">
+							{itemsB.map((item) => {
+								return (
+									<TldrawUiDropdownMenuItem key={item.value}>
+										<TldrawUiButton
+											type="icon"
+											title={`${msg(labelB)} — ${msg(`${uiTypeB}-style.${item.value}` as TLUiTranslationKey)}`}
+											data-testid={`style.${uiTypeB}.${item.value}`}
+											onClick={() => onValueChange(styleB, item.value)}
+										>
+											<TldrawUiButtonIcon icon={item.icon} />
+										</TldrawUiButton>
+									</TldrawUiDropdownMenuItem>
+								)
+							})}
+						</div>
+					</TldrawUiDropdownMenuContent>
+				</TldrawUiDropdownMenuRoot>
+			</div>
 		</div>
 	)
-})
+}
+
+// need to memo like this to get generics
+export const DoubleDropdownPicker = React.memo(
+	DoubleDropdownPickerInner
+) as typeof DoubleDropdownPickerInner

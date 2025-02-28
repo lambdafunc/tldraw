@@ -1,26 +1,23 @@
-import { useValue } from '@tldraw/state'
+import { useValue } from '@tldraw/state-react'
 import classNames from 'classnames'
-import { ComponentType, useRef } from 'react'
+import { useRef } from 'react'
 import { useEditor } from '../../hooks/useEditor'
 import { useTransform } from '../../hooks/useTransform'
-import { Box2d } from '../../primitives/Box2d'
+import { Box } from '../../primitives/Box'
 import { toDomPrecision } from '../../primitives/utils'
 
 /** @public */
-export type TLSelectionForegroundComponent = ComponentType<{
-	bounds: Box2d
+export interface TLSelectionForegroundProps {
+	bounds: Box
 	rotation: number
-}>
+}
 
-/** @public */
-export const DefaultSelectionForeground: TLSelectionForegroundComponent = ({
-	bounds,
-	rotation,
-}) => {
+/** @public @react */
+export function DefaultSelectionForeground({ bounds, rotation }: TLSelectionForegroundProps) {
 	const editor = useEditor()
 	const rSvg = useRef<SVGSVGElement>(null)
 
-	const onlyShape = useValue('only selected shape', () => editor.onlySelectedShape, [editor])
+	const onlyShape = useValue('only selected shape', () => editor.getOnlySelectedShape(), [editor])
 
 	// if all shapes have an expandBy for the selection outline, we can expand by the l
 	const expandOutlineBy = onlyShape
@@ -32,7 +29,10 @@ export const DefaultSelectionForeground: TLSelectionForegroundComponent = ({
 		y: -expandOutlineBy,
 	})
 
-	bounds = bounds.clone().expandBy(expandOutlineBy).zeroFix()
+	bounds =
+		expandOutlineBy instanceof Box
+			? bounds.clone().expand(expandOutlineBy).zeroFix()
+			: bounds.clone().expandBy(expandOutlineBy).zeroFix()
 
 	return (
 		<svg

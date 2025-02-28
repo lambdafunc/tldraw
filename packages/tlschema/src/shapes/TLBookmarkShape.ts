@@ -1,44 +1,58 @@
-import { defineMigrations } from '@tldraw/store'
 import { T } from '@tldraw/validate'
 import { assetIdValidator } from '../assets/TLBaseAsset'
-import { ShapePropsType, TLBaseShape } from './TLBaseShape'
+import { TLAssetId } from '../records/TLAsset'
+import { createShapePropsMigrationIds, createShapePropsMigrationSequence } from '../records/TLShape'
+import { RecordProps } from '../recordsWithProps'
+import { TLBaseShape } from './TLBaseShape'
 
 /** @public */
-export const bookmarkShapeProps = {
-	w: T.nonZeroNumber,
-	h: T.nonZeroNumber,
-	assetId: assetIdValidator.nullable(),
-	url: T.string,
+export interface TLBookmarkShapeProps {
+	w: number
+	h: number
+	assetId: TLAssetId | null
+	url: string
 }
-
-/** @public */
-export type TLBookmarkShapeProps = ShapePropsType<typeof bookmarkShapeProps>
 
 /** @public */
 export type TLBookmarkShape = TLBaseShape<'bookmark', TLBookmarkShapeProps>
 
-const Versions = {
-	NullAssetId: 1,
-} as const
+/** @public */
+export const bookmarkShapeProps: RecordProps<TLBookmarkShape> = {
+	w: T.nonZeroNumber,
+	h: T.nonZeroNumber,
+	assetId: assetIdValidator.nullable(),
+	url: T.linkUrl,
+}
 
-/** @internal */
-export const bookmarkShapeMigrations = defineMigrations({
-	currentVersion: Versions.NullAssetId,
-	migrators: {
-		[Versions.NullAssetId]: {
-			up: (shape: TLBookmarkShape) => {
-				if (shape.props.assetId === undefined) {
-					return { ...shape, props: { ...shape.props, assetId: null } } as typeof shape
+const Versions = createShapePropsMigrationIds('bookmark', {
+	NullAssetId: 1,
+	MakeUrlsValid: 2,
+})
+
+export { Versions as bookmarkShapeVersions }
+
+/** @public */
+export const bookmarkShapeMigrations = createShapePropsMigrationSequence({
+	sequence: [
+		{
+			id: Versions.NullAssetId,
+			up: (props) => {
+				if (props.assetId === undefined) {
+					props.assetId = null
 				}
-				return shape
 			},
-			down: (shape: TLBookmarkShape) => {
-				if (shape.props.assetId === null) {
-					const { assetId: _, ...props } = shape.props
-					return { ...shape, props } as typeof shape
+			down: 'retired',
+		},
+		{
+			id: Versions.MakeUrlsValid,
+			up: (props) => {
+				if (!T.linkUrl.isValid(props.url)) {
+					props.url = ''
 				}
-				return shape
+			},
+			down: (_props) => {
+				// noop
 			},
 		},
-	},
+	],
 })
