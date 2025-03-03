@@ -1,13 +1,17 @@
 import {
-	GapsSnapLine,
-	PointsSnapLine,
-	SnapLine,
+	GapsSnapIndicator,
+	PointsSnapIndicator,
+	SnapIndicator,
 	TLArrowShape,
+	TLGeoShape,
+	TLNoteShape,
 	TLShapeId,
 	TLShapePartial,
-	Vec2d,
+	Vec,
 	createShapeId,
 } from '@tldraw/editor'
+import { getArrowBindings } from '../lib/shapes/arrow/shared'
+import { TranslatingInfo } from '../lib/tools/SelectTool/childStates/Translating'
 import { TestEditor } from './TestEditor'
 import { getSnapLines } from './getSnapLines'
 
@@ -37,20 +41,26 @@ const ids = {
 
 beforeEach(() => {
 	console.error = jest.fn()
-	editor = new TestEditor()
+	editor = new TestEditor({
+		options: {
+			adjacentShapeMargin: 20,
+			edgeScrollDelay: 0,
+			edgeScrollEaseDuration: 0,
+		},
+	})
 })
 
-const getNumSnapPoints = (snap: SnapLine): number => {
+const getNumSnapPoints = (snap: SnapIndicator): number => {
 	return snap.type === 'points' ? snap.points.length : (null as any as number)
 }
 
-function assertGaps(snap: SnapLine): asserts snap is GapsSnapLine {
+function assertGaps(snap: SnapIndicator): asserts snap is GapsSnapIndicator {
 	expect(snap.type).toBe('gaps')
 }
 
-function getGapAndPointLines(snaps: SnapLine[]) {
-	const gapLines = snaps.filter((snap) => snap.type === 'gaps') as GapsSnapLine[]
-	const pointLines = snaps.filter((snap) => snap.type === 'points') as PointsSnapLine[]
+function getGapAndPointLines(snaps: SnapIndicator[]) {
+	const gapLines = snaps.filter((snap) => snap.type === 'gaps') as GapsSnapIndicator[]
+	const pointLines = snaps.filter((snap) => snap.type === 'points') as PointsSnapIndicator[]
 	return { gapLines, pointLines }
 }
 
@@ -118,13 +128,61 @@ describe('When translating...', () => {
 
 	it('translates a single shape', () => {
 		editor
-			.pointerDown(50, 50, ids.box1)
+			.pointerDown(50, 50, ids.box1) // point = [10, 10]
 			.pointerMove(50, 40) // [0, -10]
+			.expectToBeIn('select.translating')
 			.expectShapeToMatch({ id: ids.box1, x: 10, y: 0 })
 			.pointerMove(100, 100) // [50, 50]
+			.expectToBeIn('select.translating')
 			.expectShapeToMatch({ id: ids.box1, x: 60, y: 60 })
 			.pointerUp()
+			.expectToBeIn('select.idle')
 			.expectShapeToMatch({ id: ids.box1, x: 60, y: 60 })
+	})
+
+	it('translates a single shape near the top left edge', () => {
+		editor.user.updateUserPreferences({ edgeScrollSpeed: 1 })
+		editor.pointerDown(50, 50, ids.box1).pointerMove(0, 50) // [-50, 0]
+
+		const before = editor.getShape<TLGeoShape>(ids.box1)!
+
+		editor.forceTick()
+		editor
+			// The change is bigger than expected because the camera moves
+			.expectShapeToMatch({ id: ids.box1, x: -65, y: 10 })
+			// We'll continue moving in the x postion, but now we'll also move in the y position.
+			// The speed in the y position is smaller since we are further away from the edge.
+			.pointerMove(0, 25)
+		jest.advanceTimersByTime(100)
+		editor.pointerUp()
+
+		const after = editor.getShape<TLGeoShape>(ids.box1)!
+
+		expect(after.x).toBeLessThan(before.x)
+		expect(after.y).toBeLessThan(before.y)
+		expect(after.props.w).toEqual(before.props.w)
+		expect(after.props.h).toEqual(before.props.h)
+	})
+
+	it('translates a single shape near the bottom right edge', () => {
+		editor.user.updateUserPreferences({ edgeScrollSpeed: 1 })
+		editor.pointerDown(50, 50, ids.box1).pointerMove(1080, 50)
+
+		editor.forceTick()
+		editor.forceTick()
+		editor.forceTick()
+		editor
+			// The change is bigger than expected because the camera moves
+			.expectShapeToMatch({ id: ids.box1, x: 1115, y: 10 })
+			.pointerMove(1080, 800)
+
+		editor.forceTick()
+		editor.forceTick()
+		editor.forceTick()
+		editor
+			.expectShapeToMatch({ id: ids.box1, x: 1215, y: 805.9 })
+			.pointerUp()
+			.expectShapeToMatch({ id: ids.box1, x: 1240, y: 821.2 })
 	})
 
 	it('translates multiple shapes', () => {
@@ -173,16 +231,17 @@ describe('When cloning...', () => {
 	})
 
 	it('clones a single shape and restores when stopping cloning', () => {
-		expect(editor.currentPageShapeIds.size).toBe(3)
-		expect(editor.currentPageShapeIds.size).toBe(3)
+		// Move the camera so that we are not at the edges, which causes the camera to move when we translate
+		expect(editor.getCurrentPageShapeIds().size).toBe(3)
+		expect(editor.getCurrentPageShapeIds().size).toBe(3)
 		editor.select(ids.box1).pointerDown(50, 50, ids.box1).pointerMove(50, 40) // [0, -10]
-		expect(editor.currentPageShapeIds.size).toBe(3)
+		expect(editor.getCurrentPageShapeIds().size).toBe(3)
 		editor.expectShapeToMatch({ id: ids.box1, x: 10, y: 0 }) // Translated A...
 
 		// Start cloning!
 		editor.keyDown('Alt')
-		expect(editor.currentPageShapeIds.size).toBe(4)
-		const newShape = editor.selectedShapes[0]
+		expect(editor.getCurrentPageShapeIds().size).toBe(4)
+		const newShape = editor.getSelectedShapes()[0]
 		expect(newShape.id).not.toBe(ids.box1)
 
 		editor
@@ -202,15 +261,15 @@ describe('When cloning...', () => {
 
 	it('clones multiple single shape and restores when stopping cloning', () => {
 		editor.select(ids.box1, ids.box2).pointerDown(50, 50, ids.box1).pointerMove(50, 40) // [0, -10]
-		expect(editor.currentPageShapeIds.size).toBe(3)
+		expect(editor.getCurrentPageShapeIds().size).toBe(3)
 		editor.expectShapeToMatch({ id: ids.box1, x: 10, y: 0 }) // Translated A...
 		editor.expectShapeToMatch({ id: ids.box2, x: 200, y: 190 }) // Translated B...
 
 		// Start cloning!
 		editor.keyDown('Alt')
-		expect(editor.currentPageShapeIds.size).toBe(5) // Two new shapes!
-		const newShapeA = editor.getShape(editor.selectedShapeIds[0])!
-		const newShapeB = editor.getShape(editor.selectedShapeIds[1])!
+		expect(editor.getCurrentPageShapeIds().size).toBe(5) // Two new shapes!
+		const newShapeA = editor.getShape(editor.getSelectedShapeIds()[0])!
+		const newShapeB = editor.getShape(editor.getSelectedShapeIds()[1])!
 		expect(newShapeA).toBeDefined()
 		expect(newShapeB).toBeDefined()
 
@@ -242,11 +301,11 @@ describe('When cloning...', () => {
 		expect(editor.getShape(ids.line1)!.parentId).toBe(ids.box2)
 		editor.select(ids.box2).pointerDown(250, 250, ids.box2).pointerMove(250, 240) // [0, -10]
 
-		expect(editor.currentPageShapeIds.size).toBe(3)
+		expect(editor.getCurrentPageShapeIds().size).toBe(3)
 		editor.keyDown('Alt', { altKey: true })
-		expect(editor.currentPageShapeIds.size).toBe(5) // Creates a clone of B and C (its descendant)
+		expect(editor.getCurrentPageShapeIds().size).toBe(5) // Creates a clone of B and C (its descendant)
 
-		const newShapeA = editor.getShape(editor.selectedShapeIds[0])!
+		const newShapeA = editor.getShape(editor.getSelectedShapeIds()[0])!
 		const newShapeB = editor.getShape(editor.getSortedChildIdsForParent(newShapeA.id)[0])!
 
 		expect(newShapeA).toBeDefined()
@@ -276,29 +335,29 @@ describe('When cloning...', () => {
 
 	it('Clones twice', () => {
 		const groupId = createShapeId('g')
-		editor.groupShapes([ids.box1, ids.box2], groupId)
-		const count1 = editor.currentPageShapes.length
+		editor.groupShapes([ids.box1, ids.box2], { groupId: groupId })
+		const count1 = editor.getCurrentPageShapes().length
 
 		editor.pointerDown(50, 50, { shape: editor.getShape(groupId)!, target: 'shape' })
-		editor.expectPathToBe('root.select.pointing_shape')
+		editor.expectToBeIn('select.pointing_shape')
 
 		editor.pointerMove(199, 199)
-		editor.expectPathToBe('root.select.translating')
-		expect(editor.currentPageShapes.length).toBe(count1) // 2 new box and group
+		editor.expectToBeIn('select.translating')
+		expect(editor.getCurrentPageShapes().length).toBe(count1) // 2 new box and group
 
 		editor.keyDown('Alt')
 
-		editor.expectPathToBe('root.select.translating')
-		expect(editor.currentPageShapes.length).toBe(count1 + 3) // 2 new box and group
+		editor.expectToBeIn('select.translating')
+		expect(editor.getCurrentPageShapes().length).toBe(count1 + 3) // 2 new box and group
 
 		editor.keyUp('Alt')
 		jest.advanceTimersByTime(500)
 
-		expect(editor.currentPageShapes.length).toBe(count1) // 2 new box and group
+		expect(editor.getCurrentPageShapes().length).toBe(count1) // 2 new box and group
 
 		editor.keyDown('Alt')
 
-		expect(editor.currentPageShapes.length).toBe(count1 + 3) // 2 new box and group
+		expect(editor.getCurrentPageShapes().length).toBe(count1 + 3) // 2 new box and group
 	})
 })
 
@@ -352,17 +411,17 @@ describe('When translating shapes that are descendants of a rotated shape...', (
 		const shapeA = editor.getShape(ids.box1)!
 		const shapeD = editor.getShape(ids.boxD)!
 
-		expect(editor.getPageCenter(shapeA)).toMatchObject(new Vec2d(60, 60))
-		expect(editor.getShapeGeometry(shapeD).center).toMatchObject(new Vec2d(5, 5))
-		expect(editor.getPageCenter(shapeD)).toMatchObject(new Vec2d(35, 35))
+		expect(editor.getPageCenter(shapeA)).toMatchObject(new Vec(60, 60))
+		expect(editor.getShapeGeometry(shapeD).center).toMatchObject(new Vec(5, 5))
+		expect(editor.getPageCenter(shapeD)).toMatchObject(new Vec(35, 35))
 
 		const rads = 0
 
-		expect(editor.getPageCenter(shapeA)).toMatchObject(new Vec2d(60, 60))
+		expect(editor.getPageCenter(shapeA)).toMatchObject(new Vec(60, 60))
 
 		// Expect the node's page position to be rotated around its parent's page center
 		expect(editor.getPageCenter(shapeD)).toMatchObject(
-			new Vec2d(35, 35).rotWith(editor.getPageCenter(shapeA)!, rads)
+			new Vec(35, 35).rotWith(editor.getPageCenter(shapeA)!, rads)
 		)
 
 		const centerD = editor.getPageCenter(shapeD)!.clone().toFixed()
@@ -374,7 +433,7 @@ describe('When translating shapes that are descendants of a rotated shape...', (
 			.pointerMove(centerD.x, centerD.y - 10)
 			.pointerUp()
 
-		expect(editor.getPageCenter(shapeD)).toMatchObject(new Vec2d(centerD.x, centerD.y - 10))
+		expect(editor.getPageCenter(shapeD)).toMatchObject(new Vec(centerD.x, centerD.y - 10))
 
 		const centerA = editor.getPageCenter(shapeA)!.clone().toFixed()
 
@@ -510,9 +569,9 @@ describe('snapping with single shapes', () => {
 		//       ┼  └──────┘
 
 		editor.pointerDown(25, 5, ids.box2).pointerMove(16, 35, { ctrlKey: true })
-		expect(editor.snaps.lines?.length).toBe(1)
+		expect(editor.snaps.getIndicators()?.length).toBe(1)
 
-		expect(getNumSnapPoints(editor.snaps.lines![0])).toBe(4)
+		expect(getNumSnapPoints(editor.snaps.getIndicators()![0])).toBe(4)
 	})
 
 	it('shows all the horizonal lines + points where the bounding boxes align', () => {
@@ -523,7 +582,9 @@ describe('snapping with single shapes', () => {
 		// x─────x────────────────────x─────x
 		editor.pointerDown(25, 5, ids.box2).pointerMove(36, 5, { ctrlKey: true })
 
-		const snaps = editor.snaps.lines!.sort((a, b) => getNumSnapPoints(a) - getNumSnapPoints(b))
+		const snaps = editor.snaps
+			.getIndicators()!
+			.sort((a, b) => getNumSnapPoints(a) - getNumSnapPoints(b))
 		expect(snaps.length).toBe(3)
 
 		// center snap line
@@ -544,7 +605,9 @@ describe('snapping with single shapes', () => {
 		// x └─────┘ x
 		editor.pointerDown(25, 5, ids.box2).pointerMove(5, 45, { ctrlKey: true })
 
-		const snaps = editor.snaps.lines!.sort((a, b) => getNumSnapPoints(a) - getNumSnapPoints(b))
+		const snaps = editor.snaps
+			.getIndicators()!
+			.sort((a, b) => getNumSnapPoints(a) - getNumSnapPoints(b))
 		expect(snaps.length).toBe(3)
 
 		// center snap line
@@ -560,23 +623,23 @@ describe('snapping with single shapes', () => {
 		editor.updateShapes([{ id: ids.box1, type: 'geo', x: -20 }])
 
 		editor.pointerDown(25, 5, ids.box2).pointerMove(36, 5, { ctrlKey: true })
-		expect(editor.snaps.lines!.length).toBe(0)
+		expect(editor.snaps.getIndicators()!.length).toBe(0)
 
-		editor.updateShapes([{ id: ids.box1, type: 'geo', x: editor.viewportScreenBounds.w + 10 }])
+		editor.updateShapes([{ id: ids.box1, type: 'geo', x: editor.getViewportScreenBounds().w + 10 }])
 		editor.pointerMove(33, 5, { ctrlKey: true })
 
-		expect(editor.snaps.lines!.length).toBe(0)
+		expect(editor.snaps.getIndicators()!.length).toBe(0)
 		editor.updateShapes([{ id: ids.box1, type: 'geo', y: -20 }])
 
 		editor.pointerMove(5, 5, { ctrlKey: true })
-		expect(editor.snaps.lines!.length).toBe(0)
+		expect(editor.snaps.getIndicators()!.length).toBe(0)
 
 		editor.updateShapes([
-			{ id: ids.box1, type: 'geo', x: 0, y: editor.viewportScreenBounds.h + 10 },
+			{ id: ids.box1, type: 'geo', x: 0, y: editor.getViewportScreenBounds().h + 10 },
 		])
 
 		editor.pointerMove(5, 5, { ctrlKey: true })
-		expect(editor.snaps.lines!.length).toBe(0)
+		expect(editor.snaps.getIndicators()!.length).toBe(0)
 	})
 
 	it('does not snap on the Y axis if the shift key is pressed', () => {
@@ -740,9 +803,10 @@ describe('Snap-between behavior', () => {
 		// the midpoint is 125 and c is 10 wide so it should snap to 120 if we put it at 121
 		editor.pointerDown(55, 5, ids.line1).pointerMove(126, 67, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 120, y: 62 })
-		expect(editor.snaps.lines?.length).toBe(1)
-		assertGaps(editor.snaps.lines![0])
-		expect(editor.snaps.lines![0].gaps.length).toBe(2)
+		expect(editor.snaps.getIndicators()?.length).toBe(1)
+		const line = editor.snaps.getIndicators()![0]
+		assertGaps(line)
+		expect(line.gaps.length).toBe(2)
 	})
 	it('shows horizontal point snaps at the same time as horizontal gap snaps', () => {
 		// ┌─────┐               ┌─────┐
@@ -763,7 +827,7 @@ describe('Snap-between behavior', () => {
 
 		editor.pointerDown(55, 5, ids.line1).pointerMove(126, 94, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 120, y: 90 })
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(1)
 		expect(gapLines[0].gaps.length).toBe(2)
@@ -793,7 +857,7 @@ describe('Snap-between behavior', () => {
 		// the midpoint is 125 and c is 10 wide so it should snap to 120 if we put it at 121
 		editor.pointerDown(55, 5, ids.line1).pointerMove(126, 67, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 120, y: 62 })
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(1)
 
@@ -828,9 +892,9 @@ describe('Snap-between behavior', () => {
 		// the midpoint is 125 and c is 10 wide so it should snap to 120 if we put it at 121
 		editor.pointerDown(55, 155, ids.line1).pointerMove(27, 126, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 22, y: 120 })
-		expect(editor.snaps.lines?.length).toBe(1)
-		assertGaps(editor.snaps.lines![0])
-		const { gapLines } = getGapAndPointLines(editor.snaps.lines!)
+		expect(editor.snaps.getIndicators()?.length).toBe(1)
+		assertGaps(editor.snaps.getIndicators()![0])
+		const { gapLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines[0].gaps.length).toBe(2)
 	})
 	it('shows vertical snap points at the same time as vertical gaps', () => {
@@ -862,7 +926,7 @@ describe('Snap-between behavior', () => {
 		editor.pointerDown(55, 155, ids.line1).pointerMove(6, 126, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 0, y: 120 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(1)
 		expect(gapLines[0].gaps.length).toBe(2)
@@ -898,7 +962,7 @@ describe('Snap-between behavior', () => {
 		editor.pointerDown(55, 155, ids.line1).pointerMove(27, 126, { ctrlKey: true })
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 22, y: 120 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(2)
@@ -933,10 +997,10 @@ describe('Snap-between behavior', () => {
 		])
 		editor.pointerDown(5, 5, ids.boxE).pointerMove(101, 126, { ctrlKey: true })
 		expect(editor.getShape(ids.boxE)).toMatchObject({ x: 95, y: 120 })
-		expect(editor.snaps.lines?.length).toBe(2)
-		assertGaps(editor.snaps.lines![0])
-		assertGaps(editor.snaps.lines![1])
-		const { gapLines } = getGapAndPointLines(editor.snaps.lines!)
+		expect(editor.snaps.getIndicators()?.length).toBe(2)
+		assertGaps(editor.snaps.getIndicators()![0])
+		assertGaps(editor.snaps.getIndicators()![1])
+		const { gapLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines[0].gaps.length).toBe(2)
 		expect(gapLines[1].gaps.length).toBe(2)
 	})
@@ -978,7 +1042,7 @@ describe('Snap-between behavior', () => {
 		editor.pointerDown(5, 5, ids.boxX).pointerMove(46, 46, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 40, y: 40 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(2)
 		expect(gapLines[0].gaps).toHaveLength(4)
 		expect(gapLines[1].gaps).toHaveLength(4)
@@ -1011,7 +1075,7 @@ describe('Snap-between behavior', () => {
 		editor.pointerDown(65, 25, ids.boxX).pointerMove(16, 25, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 0, y: 20 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 		expect(gapLines).toHaveLength(2)
 		expect(gapLines[0].gaps).toHaveLength(2)
 		expect(gapLines[1].gaps).toHaveLength(2)
@@ -1048,7 +1112,7 @@ describe('Snap-between behavior', () => {
 		editor.pointerDown(50, 55, ids.boxX).pointerMove(51, 66, { ctrlKey: true })
 
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 1, y: 61 })
-		expect(editor.snaps.lines?.length).toBe(0)
+		expect(editor.snaps.getIndicators()?.length).toBe(0)
 	})
 
 	it('should work if the thing being dragged is a selection', () => {
@@ -1076,7 +1140,7 @@ describe('Snap-between behavior', () => {
 
 		expect(editor.getShape(ids.line1)).toMatchObject({ x: 200, y: 21 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(0)
@@ -1115,7 +1179,7 @@ describe('Snap-next-to behavior', () => {
 		editor.pointerDown(5, 5, ids.boxX).pointerMove(6, 16, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 0, y: 10 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(2)
@@ -1151,7 +1215,7 @@ describe('Snap-next-to behavior', () => {
 		editor.pointerDown(5, 5, ids.boxX).pointerMove(6, 16, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 0, y: 10 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(4)
@@ -1178,7 +1242,7 @@ describe('Snap-next-to behavior', () => {
 		editor.pointerDown(105, 5, ids.boxX).pointerMove(106, 16, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 100, y: 10 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(2)
@@ -1212,7 +1276,7 @@ describe('Snap-next-to behavior', () => {
 		editor.pointerDown(205, 5, ids.boxX).pointerMove(206, 16, { ctrlKey: true })
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 200, y: 10 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(4)
@@ -1238,7 +1302,7 @@ describe('Snap-next-to behavior', () => {
 
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 10, y: 0 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(2)
@@ -1280,7 +1344,7 @@ describe('Snap-next-to behavior', () => {
 
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 10, y: 0 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(4)
@@ -1307,7 +1371,7 @@ describe('Snap-next-to behavior', () => {
 
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 10, y: 40 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(2)
@@ -1348,7 +1412,7 @@ describe('Snap-next-to behavior', () => {
 
 		expect(editor.getShape(ids.boxX)).toMatchObject({ x: 10, y: 80 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(gapLines[0].gaps).toHaveLength(4)
@@ -1382,7 +1446,7 @@ describe('Snap-next-to behavior', () => {
 
 		expect(editor.getShape(ids.boxD)).toMatchObject({ x: 200, y: 131 })
 
-		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.lines!)
+		const { gapLines, pointLines } = getGapAndPointLines(editor.snaps.getIndicators()!)
 
 		expect(gapLines).toHaveLength(1)
 		expect(pointLines).toHaveLength(0)
@@ -1503,7 +1567,7 @@ describe('snap lines', () => {
 		})
 
 		expect(getSnapLines(editor)).toMatchInlineSnapshot(`
-      Array [
+      [
         "0,0 0,100 0,200 0,300",
         "0,0 100,0 200,0 300,0",
         "0,100 100,100 200,100 300,100",
@@ -1533,7 +1597,7 @@ describe('translating a shape with a child', () => {
 
 		editor.pointerDown(25, 25, ids.box1).pointerMove(50, 25, { ctrlKey: true })
 
-		expect(editor.snaps.lines?.length).toBe(0)
+		expect(editor.snaps.getIndicators()?.length).toBe(0)
 		expect(editor.getShape(ids.box1)).toMatchObject({
 			x: 25,
 			y: 0,
@@ -1571,89 +1635,124 @@ describe('translating a shape with a bound shape', () => {
 		// |      └───┘        |
 		// └───────────────────┘
 
-		expect(editor.getShape(editor.selectedShapeIds[0])?.type).toBe('arrow')
+		expect(editor.getShape(editor.getSelectedShapeIds()[0])?.type).toBe('arrow')
 
 		editor.pointerDown(50, 50, ids.box1).pointerMove(84, 110, { ctrlKey: true })
 
-		expect(editor.snaps.lines.length).toBe(0)
+		expect(editor.snaps.getIndicators().length).toBe(0)
 	})
 
 	it('should preserve arrow bindings', () => {
 		const arrow1 = createShapeId('arrow1')
-		editor.createShapes([
-			{ id: ids.box1, type: 'geo', x: 100, y: 100, props: { w: 100, h: 100 } },
-			{ id: ids.box2, type: 'geo', x: 300, y: 300, props: { w: 100, h: 100 } },
-			{
-				id: arrow1,
-				type: 'arrow',
-				x: 150,
-				y: 150,
-				props: {
-					start: {
-						type: 'binding',
-						isExact: false,
-						boundShapeId: ids.box1,
-						normalizedAnchor: { x: 0.5, y: 0.5 },
-					},
-					end: {
-						type: 'binding',
-						isExact: false,
-						boundShapeId: ids.box2,
-						normalizedAnchor: { x: 0.5, y: 0.5 },
+		editor
+			.createShapes([
+				{ id: ids.box1, type: 'geo', x: 100, y: 100, props: { w: 100, h: 100 } },
+				{ id: ids.box2, type: 'geo', x: 300, y: 300, props: { w: 100, h: 100 } },
+				{
+					id: arrow1,
+					type: 'arrow',
+					x: 150,
+					y: 150,
+					props: {
+						start: { x: 0, y: 0 },
+						end: { x: 0, y: 0 },
 					},
 				},
-			},
-		])
+			])
+			.createBindings([
+				{
+					type: 'arrow',
+					fromId: arrow1,
+					toId: ids.box1,
+					props: {
+						terminal: 'start',
+						isExact: false,
+						normalizedAnchor: { x: 0.5, y: 0.5 },
+						isPrecise: false,
+					},
+				},
+				{
+					type: 'arrow',
+					fromId: arrow1,
+					toId: ids.box2,
+					props: {
+						terminal: 'end',
+						isExact: false,
+						normalizedAnchor: { x: 0.5, y: 0.5 },
+						isPrecise: false,
+					},
+				},
+			])
 
 		editor.select(ids.box1, arrow1)
 		editor.pointerDown(150, 150, ids.box1).pointerMove(0, 0)
 
 		expect(editor.getShape(ids.box1)).toMatchObject({ x: -50, y: -50 })
-		expect(editor.getShape(arrow1)).toMatchObject({
-			props: { start: { type: 'binding' }, end: { type: 'binding' } },
+		expect(getArrowBindings(editor, editor.getShape(arrow1) as TLArrowShape)).toMatchObject({
+			start: { type: 'arrow' },
+			end: { type: 'arrow' },
 		})
 	})
 
 	it('breaks arrow bindings when cloning', () => {
 		const arrow1 = createShapeId('arrow1')
-		editor.createShapes([
-			{ id: ids.box1, type: 'geo', x: 100, y: 100, props: { w: 100, h: 100 } },
-			{ id: ids.box2, type: 'geo', x: 300, y: 300, props: { w: 100, h: 100 } },
-			{
-				id: arrow1,
-				type: 'arrow',
-				x: 150,
-				y: 150,
-				props: {
-					start: {
-						type: 'binding',
-						isExact: false,
-						boundShapeId: ids.box1,
-						normalizedAnchor: { x: 0.5, y: 0.5 },
-					},
-					end: {
-						type: 'binding',
-						isExact: false,
-						boundShapeId: ids.box2,
-						normalizedAnchor: { x: 0.5, y: 0.5 },
+		editor
+			.createShapes([
+				{ id: ids.box1, type: 'geo', x: 100, y: 100, props: { w: 100, h: 100 } },
+				{ id: ids.box2, type: 'geo', x: 300, y: 300, props: { w: 100, h: 100 } },
+				{
+					id: arrow1,
+					type: 'arrow',
+					x: 150,
+					y: 150,
+					props: {
+						start: { x: 0, y: 0 },
+						end: { x: 0, y: 0 },
 					},
 				},
-			},
-		])
+			])
+			.createBindings([
+				{
+					type: 'arrow',
+					fromId: arrow1,
+					toId: ids.box1,
+					props: {
+						terminal: 'start',
+						isExact: false,
+						normalizedAnchor: { x: 0.5, y: 0.5 },
+						isPrecise: false,
+					},
+				},
+				{
+					type: 'arrow',
+					fromId: arrow1,
+					toId: ids.box2,
+					props: {
+						terminal: 'end',
+						isExact: false,
+						normalizedAnchor: { x: 0.5, y: 0.5 },
+						isPrecise: false,
+					},
+				},
+			])
 
 		editor.select(ids.box1, arrow1)
 		editor.pointerDown(150, 150, ids.box1).pointerMove(0, 0, { altKey: true })
 
 		expect(editor.getShape(ids.box1)).toMatchObject({ x: 100, y: 100 })
-		expect(editor.getShape(arrow1)).toMatchObject({
-			props: { start: { type: 'binding' }, end: { type: 'binding' } },
+		expect(getArrowBindings(editor, editor.getShape(arrow1) as TLArrowShape)).toMatchObject({
+			start: { type: 'arrow' },
+			end: { type: 'arrow' },
 		})
 
-		const newArrow = editor.currentPageShapes.find(
-			(s) => editor.isShapeOfType<TLArrowShape>(s, 'arrow') && s.id !== arrow1
-		)
-		expect(newArrow).toMatchObject({
-			props: { start: { type: 'binding' }, end: { type: 'point' } },
+		const newArrow = editor
+			.getCurrentPageShapes()
+			.find(
+				(s) => editor.isShapeOfType<TLArrowShape>(s, 'arrow') && s.id !== arrow1
+			)! as TLArrowShape
+		expect(getArrowBindings(editor, newArrow)).toMatchObject({
+			start: { type: 'arrow' },
+			end: undefined,
 		})
 	})
 })
@@ -1729,18 +1828,18 @@ describe('When dragging a shape onto a parent', () => {
 		editor.pointerDown(550, 550, ids.box1).pointerMove(350, 350).pointerUp()
 
 		// It should not become the child of frame2 because it is clipped
-		expect(editor.getShape(ids.box1)?.parentId).toBe(editor.currentPageId)
+		expect(editor.getShape(ids.box1)?.parentId).toBe(editor.getCurrentPageId())
 	})
 })
 
 describe('When dragging shapes', () => {
 	it('should drag and undo and redo', () => {
-		editor.deleteShapes(editor.currentPageShapes)
+		editor.deleteShapes(editor.getCurrentPageShapes())
 
 		editor.setCurrentTool('arrow').pointerMove(0, 0).pointerDown().pointerMove(100, 100).pointerUp()
 
 		editor.expectShapeToMatch({
-			id: editor.currentPageShapes[0]!.id,
+			id: editor.getCurrentPageShapes()[0]!.id,
 			x: 0,
 			y: 0,
 		})
@@ -1748,7 +1847,7 @@ describe('When dragging shapes', () => {
 		editor.setCurrentTool('geo').pointerMove(-10, 100).pointerDown().pointerUp()
 
 		editor.expectShapeToMatch({
-			id: editor.currentPageShapes[1]!.id,
+			id: editor.getCurrentPageShapes()[1]!.id,
 			x: -110,
 			y: 0,
 		})
@@ -1760,12 +1859,12 @@ describe('When dragging shapes', () => {
 			.pointerMove(100, 50)
 			.pointerUp()
 			.expectShapeToMatch({
-				id: editor.currentPageShapes[0]!.id,
+				id: editor.getCurrentPageShapes()[0]!.id,
 				x: 50, // 50 to the right
 				y: 0,
 			})
 			.expectShapeToMatch({
-				id: editor.currentPageShapes[1]!.id,
+				id: editor.getCurrentPageShapes()[1]!.id,
 				x: -60, // 50 to the right
 				y: 0,
 			})
@@ -1773,12 +1872,12 @@ describe('When dragging shapes', () => {
 		editor
 			.undo()
 			.expectShapeToMatch({
-				id: editor.currentPageShapes[0]!.id,
+				id: editor.getCurrentPageShapes()[0]!.id,
 				x: 0, // 50 to the right
 				y: 0,
 			})
 			.expectShapeToMatch({
-				id: editor.currentPageShapes[1]!.id,
+				id: editor.getCurrentPageShapes()[1]!.id,
 				x: -110, // 50 to the right
 				y: 0,
 			})
@@ -1792,20 +1891,20 @@ it('clones a single shape simply', () => {
 		.pointerMove(50, 50)
 		.click()
 
-	expect(editor.onlySelectedShape).toBe(editor.currentPageShapes[0])
-	expect(editor.hoveredShape).toBe(editor.currentPageShapes[0])
+	expect(editor.getOnlySelectedShape()).toBe(editor.getCurrentPageShapes()[0])
+	expect(editor.getHoveredShape()).toBe(editor.getCurrentPageShapes()[0])
 
 	// click on the canvas to deselect
 	editor.pointerMove(200, 50).click()
 
-	expect(editor.onlySelectedShape).toBe(null)
-	expect(editor.hoveredShape).toBe(undefined)
+	expect(editor.getOnlySelectedShape()).toBe(null)
+	expect(editor.getHoveredShape()).toBe(undefined)
 
 	// move back over the the shape
 	editor.pointerMove(50, 50)
 
-	expect(editor.onlySelectedShape).toBe(null)
-	expect(editor.hoveredShape).toBe(editor.currentPageShapes[0])
+	expect(editor.getOnlySelectedShape()).toBe(null)
+	expect(editor.getHoveredShape()).toBe(editor.getCurrentPageShapes()[0])
 
 	// start dragging the shape
 	editor
@@ -1816,9 +1915,394 @@ it('clones a single shape simply', () => {
 		// stop dragging
 		.pointerUp()
 
-	expect(editor.currentPageShapes).toHaveLength(2)
-	const [, sticky2] = editor.currentPageShapes
-	expect(editor.onlySelectedShape).toBe(sticky2)
-	expect(editor.editingShape).toBe(undefined)
-	expect(editor.hoveredShape).toBe(sticky2)
+	expect(editor.getCurrentPageShapes()).toHaveLength(2)
+	const [, sticky2] = editor.getCurrentPageShapes()
+	expect(editor.getOnlySelectedShape()).toBe(sticky2)
+	expect(editor.getEditingShape()).toBe(undefined)
+	expect(editor.getHoveredShape()).toBe(sticky2)
+})
+
+describe('Moving the camera while panning', () => {
+	it('moves things while dragging', () => {
+		editor.createShape({
+			type: 'geo',
+			id: ids.box1,
+			x: 0,
+			y: 0,
+			props: { geo: 'rectangle', w: 100, h: 100, fill: 'solid' },
+		})
+
+		editor
+			.expectShapeToMatch({ id: ids.box1, x: 0, y: 0 })
+			.expectToBeIn('select.idle')
+			.pointerMove(40, 40)
+			.pointerDown()
+			.expectToBeIn('select.pointing_shape')
+			.pointerMove(50, 50) // move by 10,10
+			.expectToBeIn('select.translating')
+			.expectShapeToMatch({ id: ids.box1, x: 10, y: 10 })
+			.wheel(-10, -10) // wheel by -10,-10
+			.expectShapeToMatch({ id: ids.box1, x: 20, y: 20 })
+			.wheel(-10, -10) // wheel by -10,-10
+			.expectShapeToMatch({ id: ids.box1, x: 30, y: 30 })
+	})
+
+	it('Correctly preserves screen point while dragging', async () => {
+		editor.createShape({
+			type: 'geo',
+			id: ids.box1,
+			x: 0,
+			y: 0,
+			props: { geo: 'rectangle', w: 100, h: 100, fill: 'solid' },
+		})
+
+		editor
+			.expectCameraToBe(0, 0, 1)
+			.expectShapeToMatch({ id: ids.box1, x: 0, y: 0 })
+			.expectPageBoundsToBe(ids.box1, { x: 0, y: 0 })
+			.expectScreenBoundsToBe(ids.box1, { x: 0, y: 0 })
+			.expectToBeIn('select.idle')
+			.pointerMove(40, 40)
+			.pointerDown()
+			.expectToBeIn('select.pointing_shape')
+			.pointerMove(50, 50) // move by 10,10
+			.expectToBeIn('select.translating')
+
+			// we haven't moved the camera from origin yet, so the
+			// point / page / screen points should all be identical
+			.expectCameraToBe(0, 0, 1)
+			.expectShapeToMatch({ id: ids.box1, x: 10, y: 10 })
+			.expectPageBoundsToBe(ids.box1, { x: 10, y: 10 })
+			.expectScreenBoundsToBe(ids.box1, { x: 10, y: 10 })
+
+			// now we move the camera by -10,-10
+			// since we're dragging, they should still all move together
+			.wheel(-10, -10)
+
+			// The camera has moved
+			.expectCameraToBe(-10, -10, 1)
+			.expectShapeToMatch({ id: ids.box1, x: 20, y: 20 })
+			.expectPageBoundsToBe(ids.box1, { x: 20, y: 20 })
+
+			// Screen bounds / point is still the same as it was before
+			.expectScreenBoundsToBe(ids.box1, { x: 10, y: 10 })
+	})
+})
+
+const defaultPitLocations = [
+	{ x: 100, y: -120 },
+	{ x: 320, y: 100 },
+	{ x: 100, y: 320 },
+	{ x: -120, y: 100 },
+]
+
+describe('Note shape grid helper positions / pits', () => {
+	it('Snaps to pits', () => {
+		editor
+			.createShape({ type: 'note' })
+			.createShape({ type: 'note', x: 500, y: 500 })
+			.pointerMove(600, 600)
+			// start translating
+			.pointerDown()
+
+		const shape = editor.getLastCreatedShape<TLNoteShape>()
+
+		for (const pit of defaultPitLocations) {
+			editor
+				.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+				.expectShapeToMatch({ ...shape, x: pit.x - 100, y: pit.y - 100 }) // but it's in the pit!
+		}
+	})
+
+	it('Does not snap to pit if shape has a different rotation', () => {
+		editor
+			.createShape({ type: 'note', rotation: 0.001 })
+			.createShape({ type: 'note', x: 500, y: 500 })
+			.pointerMove(600, 600)
+			// start translating
+			.pointerDown()
+
+		const shape = editor.getLastCreatedShape<TLNoteShape>()
+
+		for (const pit of defaultPitLocations) {
+			const rotatedPit = new Vec(pit.x, pit.y).rot(0.001)
+			editor
+				.pointerMove(rotatedPit.x - 4, rotatedPit.y - 4) // not exactly in the pit...
+				.expectShapeToMatch({ ...shape, x: rotatedPit.x - 104, y: rotatedPit.y - 104 }) // and NOT in the pit
+		}
+	})
+
+	it('Snaps to pit if shape has the same rotation', () => {
+		editor
+			.createShape({ type: 'note', rotation: 0.001 })
+			.createShape({ type: 'note', x: 500, y: 500, rotation: 0.001 })
+			.pointerMove(600, 600)
+			// start translating
+			.pointerDown()
+
+		const shape = editor.getLastCreatedShape<TLNoteShape>()
+
+		for (const pit of defaultPitLocations) {
+			const rotatedPit = new Vec(pit.x, pit.y).rot(0.001)
+			const rotatedPointPosition = new Vec(pit.x - 100, pit.y - 100).rot(0.001)
+			editor
+				.pointerMove(rotatedPit.x - 4, rotatedPit.y - 4) // not exactly in the pit...
+				.expectShapeToMatch({ ...shape, x: rotatedPointPosition.x, y: rotatedPointPosition.y }) // and in the pit
+		}
+	})
+
+	it('Snaps correctly to the top when the translating shape has growY', () => {
+		editor
+			.createShape({ type: 'note' })
+			.createShape({ type: 'note', x: 500, y: 500 })
+			.updateShape({ ...editor.getLastCreatedShape(), props: { growY: 100 } })
+			.pointerMove(600, 600)
+			// start translating
+			.pointerDown()
+
+		const shape = editor.getLastCreatedShape<TLNoteShape>()
+		expect(shape.props.growY).toBe(100)
+
+		const pit = defaultPitLocations[0] // top
+		editor
+			.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+			.expectShapeToMatch({ ...shape, x: pit.x - 104, y: pit.y - 104 }) // not in the pit — the pit is further up!
+			.pointerMove(pit.x - 4, pit.y - 4 - 100) // account for the translating shape's growY
+			.expectShapeToMatch({ ...shape, x: pit.x - 100, y: pit.y - 200 }) // and we're in the pit
+	})
+
+	it('Snaps correctly to the bottom when the not-translating shape has growY', () => {
+		editor
+			.createShape({ type: 'note' })
+			.updateShape({ ...editor.getLastCreatedShape(), props: { growY: 100 } })
+			.createShape({ type: 'note', x: 500, y: 500 })
+			.pointerMove(600, 600)
+			// start translating
+			.pointerDown()
+
+		const shape = editor.getLastCreatedShape<TLNoteShape>()
+
+		editor
+			.pointerMove(104, 324) // not exactly in the pit...
+			.expectShapeToMatch({ ...shape, x: 4, y: 224 }) // not in the pit — the pit is further down!
+			.pointerMove(104, 424) // account for the shape's growY
+			.expectShapeToMatch({ ...shape, x: 0, y: 320 }) // and we're in the pit (420 - 100 = 320)
+	})
+
+	it('Snaps multiple notes to the pit using the note under the cursor', () => {
+		editor.createShape({ type: 'note' })
+		editor.createShape({ type: 'note', x: 500, y: 500 })
+		editor.createShape({ type: 'note', x: 700, y: 500, parentId: editor.getCurrentPageId() })
+		const [shapeB, shapeC] = editor.getLastCreatedShapes(2)
+
+		const pit = { x: 320, y: 100 } // right of shapeA
+
+		editor.select(shapeB, shapeC)
+
+		expect(editor.getSelectionPageBounds()).toMatchObject({ x: 500, y: 500, w: 400, h: 200 })
+
+		editor
+			.pointerMove(600, 600) // center of b
+			.pointerDown()
+			.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+
+		// B snaps the selection to the pit
+		// (index is manually set because the sticky gets brought to front)
+		editor.expectShapeToMatch({ ...shapeB, x: 220, y: 0 })
+		expect(editor.getSelectionPageBounds()).toMatchObject({ x: 220, y: 0, w: 400, h: 200 })
+
+		editor.cancel()
+		editor
+			.pointerMove(800, 600) // center of c
+			.pointerDown()
+			.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+
+		// C snaps the selection to the pit
+		expect(editor.getSelectionPageBounds()).toMatchObject({ x: 20, y: 0, w: 400, h: 200 })
+
+		editor.cancel()
+		editor
+			.pointerMove(800, 600) // center of c
+			.pointerDown()
+			.pointerMove(pit.x - 4 + 200, pit.y - 4) // B is almost in the pit...
+
+		// Even though B is in the same place as it was when it snapped (while dragging over B),
+		// because our cursor is over C it won't fall into the pit—because it's not hovered
+		// (index is manually set because the sticky gets brought to front)
+		editor.expectShapeToMatch({ ...shapeB, x: 216, y: -4 })
+		expect(editor.getSelectionPageBounds()).toMatchObject({ x: 216, y: -4, w: 400, h: 200 })
+	})
+
+	it('When multiple notes are under the cursor, uses the top-most one', () => {
+		editor.createShape({ type: 'note' })
+		editor.createShape({ type: 'note', x: 500, y: 500 })
+		editor.createShape({ type: 'note', x: 501, y: 501 })
+		const [shapeB, shapeC] = editor.getLastCreatedShapes(2)
+
+		// For the purposes of this test, let's leave the stickies unparented
+		editor.reparentShapes([shapeC], editor.getCurrentPageId())
+
+		const pit = { x: 320, y: 100 } // right of shapeA
+
+		editor.select(shapeB, shapeC)
+
+		expect(editor.getSelectionPageBounds()).toMatchObject({ x: 500, y: 500, w: 201, h: 201 })
+
+		// First we do it with C in front
+		editor.bringToFront([shapeC])
+		editor
+			.pointerMove(600, 600) // center of b but overlapping C
+			.pointerDown()
+			.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+
+		// B snaps the selection to the pit
+		editor.expectShapeToMatch({ id: shapeB.id, x: 219, y: -1 }) // not snapped
+		editor.expectShapeToMatch({ id: shapeC.id, x: 220, y: 0 }) // snapped
+
+		editor.cancel()
+
+		// Now let's do it with B in front
+		editor.bringToFront([shapeB])
+
+		editor
+			.pointerMove(600, 600) // center of b but overlapping C
+			.pointerDown()
+			.pointerMove(pit.x - 4, pit.y - 4) // not exactly in the pit...
+
+		// B snaps the selection to the pit
+		editor.expectShapeToMatch({ id: shapeB.id, x: 220, y: 0 }) // snapped
+		editor.expectShapeToMatch({ id: shapeC.id, x: 221, y: 1 }) // not snapped
+	})
+})
+
+describe('cancelling a translate operation', () => {
+	it('undoes any changes since the start of the translate operation', () => {
+		editor.createShape<TLGeoShape>({
+			type: 'geo',
+			x: 0,
+			y: 0,
+			props: {
+				w: 100,
+				h: 100,
+			},
+		})
+
+		const shape = editor.getLastCreatedShape()
+
+		editor.select(shape)
+
+		const bounds = editor.getShapePageBounds(shape.id)!
+		editor.pointerDown(bounds.midX, bounds.midY)
+		editor.pointerMove(bounds.midX + 100, bounds.midY)
+		expect(editor.getShapePageBounds(shape.id)).toMatchObject({ x: 100, y: 0, w: 100, h: 100 })
+		editor.cancel()
+		expect(editor.getShapePageBounds(shape.id)).toMatchObject({ x: 0, y: 0, w: 100, h: 100 })
+	})
+
+	it('undoes the shape creation if creating a shape', () => {
+		editor.setCurrentTool('note')
+		editor.pointerDown(0, 0)
+		editor.pointerMove(100, 100)
+		editor.expectToBeIn('select.translating')
+		const shape = editor.getLastCreatedShape()
+		expect(editor.getShapePageBounds(shape)?.center).toMatchObject({ x: 100, y: 100 })
+		editor.cancel()
+		expect(editor.getShape(shape.id)).toBeUndefined()
+	})
+
+	it('handles legacy creating:{shapeId} marks created with editor.mark', () => {
+		const shapeId = createShapeId()
+
+		editor
+			.createShape<TLGeoShape>({
+				id: shapeId,
+				type: 'geo',
+				x: 0,
+				y: 0,
+				props: {
+					w: 100,
+					h: 100,
+				},
+			})
+			.select(shapeId)
+		const shape = editor.getOnlySelectedShape()!
+		editor.markHistoryStoppingPoint(`before`)
+		editor.updateShape({ ...shape, meta: { a: 'before' } })
+		editor.markHistoryStoppingPoint(`creating:${shapeId}`)
+		editor.updateShape({ ...shape, meta: { a: 'creating' } })
+		editor.markHistoryStoppingPoint(`after`)
+		editor.updateShape({ ...shape, meta: { a: 'after' } })
+		editor.pointerMove(0, 0)
+		editor.setCurrentTool('select.translating', {
+			type: 'pointer',
+			button: 0, // left mouse button
+			altKey: false,
+			ctrlKey: false,
+			metaKey: false,
+			accelKey: false,
+			isPen: false,
+			name: 'pointer_move',
+			point: { x: 0, y: 0 },
+			pointerId: 0,
+			shape: editor.getShape(shapeId)!,
+			shiftKey: false,
+			target: 'shape',
+			isCreating: true,
+		} satisfies TranslatingInfo)
+		expect(editor.getShapePageBounds(shapeId)?.center).toMatchObject({ x: 50, y: 50 })
+		editor.expectToBeIn('select.translating')
+		editor.pointerMove(100, 100)
+		expect(editor.getShapePageBounds(shapeId)?.center).toMatchObject({ x: 150, y: 150 })
+		expect(editor.getShape(shapeId)?.meta).toMatchObject({ a: 'after' })
+		editor.cancel()
+		expect(editor.getShape(shapeId)?.meta).toMatchObject({ a: 'before' })
+	})
+
+	it('handles legacy creating:{shapeId} marks created with editor.markHistoryStoppingPoint', () => {
+		const shapeId = createShapeId()
+
+		editor
+			.createShape<TLGeoShape>({
+				id: shapeId,
+				type: 'geo',
+				x: 0,
+				y: 0,
+				props: {
+					w: 100,
+					h: 100,
+				},
+			})
+			.select(shapeId)
+		const shape = editor.getOnlySelectedShape()!
+		editor.markHistoryStoppingPoint(`before`)
+		editor.updateShape({ ...shape, meta: { a: 'before' } })
+		editor.markHistoryStoppingPoint(`creating:${shapeId}`)
+		editor.updateShape({ ...shape, meta: { a: 'creating' } })
+		editor.markHistoryStoppingPoint(`after`)
+		editor.updateShape({ ...shape, meta: { a: 'after' } })
+		editor.pointerMove(0, 0)
+		editor.setCurrentTool('select.translating', {
+			type: 'pointer',
+			button: 0, // left mouse button
+			altKey: false,
+			ctrlKey: false,
+			metaKey: false,
+			accelKey: false,
+			isPen: false,
+			name: 'pointer_move',
+			point: { x: 0, y: 0 },
+			pointerId: 0,
+			shape: editor.getShape(shapeId)!,
+			shiftKey: false,
+			target: 'shape',
+			isCreating: true,
+		} satisfies TranslatingInfo)
+		expect(editor.getShapePageBounds(shapeId)?.center).toMatchObject({ x: 50, y: 50 })
+		editor.expectToBeIn('select.translating')
+		editor.pointerMove(100, 100)
+		expect(editor.getShapePageBounds(shapeId)?.center).toMatchObject({ x: 150, y: 150 })
+		expect(editor.getShape(shapeId)?.meta).toMatchObject({ a: 'after' })
+		editor.cancel()
+		expect(editor.getShape(shapeId)?.meta).toMatchObject({ a: 'before' })
+	})
 })

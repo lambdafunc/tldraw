@@ -1,4 +1,5 @@
 import { Atom, atom, react } from '@tldraw/state'
+import { deleteFromSessionStorage, getFromSessionStorage, setInSessionStorage } from '@tldraw/utils'
 
 // --- 1. DEFINE ---
 //
@@ -7,43 +8,42 @@ import { Atom, atom, react } from '@tldraw/state'
 // development. Use `createFeatureFlag` to create a boolean flag which will be
 // `true` by default in development and staging, and `false` in production.
 /** @internal */
-export const featureFlags: Record<string, DebugFlag<boolean>> = {
-	// todo: remove this. it's not used, but we only have one feature flag and i
-	// wanted an example :(
-}
+export const featureFlags: Record<string, DebugFlag<boolean>> = {}
+
+/** @internal */
+export const pointerCaptureTrackingObject = createDebugValue(
+	'pointerCaptureTrackingObject',
+	// ideally we wouldn't store this mutable value in an atom but it's not
+	// a big deal for debug values
+	{
+		defaults: { all: new Map<Element, number>() },
+		shouldStoreForSession: false,
+	}
+)
 
 /** @internal */
 export const debugFlags = {
 	// --- DEBUG VALUES ---
-	preventDefaultLogging: createDebugValue('preventDefaultLogging', {
+	logPreventDefaults: createDebugValue('logPreventDefaults', {
 		defaults: { all: false },
 	}),
-	pointerCaptureLogging: createDebugValue('pointerCaptureLogging', {
+	logPointerCaptures: createDebugValue('logPointerCaptures', {
 		defaults: { all: false },
 	}),
-	pointerCaptureTracking: createDebugValue('pointerCaptureTracking', {
-		defaults: { all: false },
-	}),
-	pointerCaptureTrackingObject: createDebugValue(
-		'pointerCaptureTrackingObject',
-		// ideally we wouldn't store this mutable value in an atom but it's not
-		// a big deal for debug values
-		{
-			defaults: { all: new Map<Element, number>() },
-			shouldStoreForSession: false,
-		}
-	),
-	elementRemovalLogging: createDebugValue('elementRemovalLogging', {
+	logElementRemoves: createDebugValue('logElementRemoves', {
 		defaults: { all: false },
 	}),
 	debugSvg: createDebugValue('debugSvg', {
 		defaults: { all: false },
 	}),
+	showFps: createDebugValue('showFps', {
+		defaults: { all: false },
+	}),
+	measurePerformance: createDebugValue('measurePerformance', { defaults: { all: false } }),
 	throwToBlob: createDebugValue('throwToBlob', {
 		defaults: { all: false },
 	}),
-	logMessages: createDebugValue('uiLog', { defaults: { all: [] as any[] } }),
-	resetConnectionEveryPing: createDebugValue('resetConnectionEveryPing', {
+	reconnectOnPing: createDebugValue('reconnectOnPing', {
 		defaults: { all: false },
 	}),
 	debugCursors: createDebugValue('debugCursors', {
@@ -52,17 +52,12 @@ export const debugFlags = {
 	forceSrgb: createDebugValue('forceSrgbColors', { defaults: { all: false } }),
 	debugGeometry: createDebugValue('debugGeometry', { defaults: { all: false } }),
 	hideShapes: createDebugValue('hideShapes', { defaults: { all: false } }),
-}
+	editOnType: createDebugValue('editOnType', { defaults: { all: false } }),
+} as const
 
 declare global {
 	interface Window {
-		tldrawLog: (message: any) => void
-	}
-}
-
-if (typeof window !== 'undefined') {
-	window.tldrawLog = (message: any) => {
-		debugFlags.logMessages.set(debugFlags.logMessages.value.concat(message))
+		tldrawLog(message: any): void
 	}
 }
 
@@ -82,7 +77,7 @@ if (typeof window !== 'undefined') {
 if (typeof Element !== 'undefined') {
 	const nativeElementRemoveChild = Element.prototype.removeChild
 	react('element removal logging', () => {
-		if (debugFlags.elementRemovalLogging.value) {
+		if (debugFlags.logElementRemoves.get()) {
 			Element.prototype.removeChild = function <T extends Node>(this: any, child: Node): T {
 				console.warn('[tldraw] removing child:', child)
 				return nativeElementRemoveChild.call(this, child) as T
@@ -100,7 +95,7 @@ function createDebugValue<T>(
 	{
 		defaults,
 		shouldStoreForSession = true,
-	}: { defaults: Defaults<T>; shouldStoreForSession?: boolean }
+	}: { defaults: DebugFlagDefaults<T>; shouldStoreForSession?: boolean }
 ) {
 	return createDebugValueBase({
 		name,
@@ -109,14 +104,17 @@ function createDebugValue<T>(
 	})
 }
 
-// function createFeatureFlag(
+// function createFeatureFlag<T>(
 // 	name: string,
-// 	defaults: Defaults<boolean> = { all: true, production: false }
+// 	{
+// 		defaults,
+// 		shouldStoreForSession = true,
+// 	}: { defaults: DebugFlagDefaults<T>; shouldStoreForSession?: boolean }
 // ) {
 // 	return createDebugValueBase({
 // 		name,
 // 		defaults,
-// 		shouldStoreForSession: true,
+// 		shouldStoreForSession,
 // 	})
 // }
 
@@ -130,22 +128,18 @@ function createDebugValueBase<T>(def: DebugFlagDef<T>): DebugFlag<T> {
 	if (typeof window !== 'undefined') {
 		if (def.shouldStoreForSession) {
 			react(`debug:${def.name}`, () => {
-				const currentValue = valueAtom.value
-				try {
-					if (currentValue === defaultValue) {
-						window.sessionStorage.removeItem(`tldraw_debug:${def.name}`)
-					} else {
-						window.sessionStorage.setItem(`tldraw_debug:${def.name}`, JSON.stringify(currentValue))
-					}
-				} catch {
-					// not a big deal
+				const currentValue = valueAtom.get()
+				if (currentValue === defaultValue) {
+					deleteFromSessionStorage(`tldraw_debug:${def.name}`)
+				} else {
+					setInSessionStorage(`tldraw_debug:${def.name}`, JSON.stringify(currentValue))
 				}
 			})
 		}
 
 		Object.defineProperty(window, `tldraw${def.name.replace(/^[a-z]/, (l) => l.toUpperCase())}`, {
 			get() {
-				return valueAtom.value
+				return valueAtom.get()
 			},
 			set(newValue) {
 				valueAtom.set(newValue)
@@ -159,8 +153,8 @@ function createDebugValueBase<T>(def: DebugFlagDef<T>): DebugFlag<T> {
 
 function getStoredInitialValue(name: string) {
 	try {
-		return JSON.parse(window?.sessionStorage.getItem(`tldraw_debug:${name}`) ?? 'null')
-	} catch (err) {
+		return JSON.parse(getFromSessionStorage(`tldraw_debug:${name}`) ?? 'null')
+	} catch {
 		return null
 	}
 }
@@ -195,7 +189,8 @@ function getDefaultValue<T>(def: DebugFlagDef<T>): T {
 	}
 }
 
-interface Defaults<T> {
+/** @internal */
+export interface DebugFlagDefaults<T> {
 	development?: T
 	staging?: T
 	production?: T
@@ -205,7 +200,7 @@ interface Defaults<T> {
 /** @internal */
 export interface DebugFlagDef<T> {
 	name: string
-	defaults: Defaults<T>
+	defaults: DebugFlagDefaults<T>
 	shouldStoreForSession: boolean
 }
 

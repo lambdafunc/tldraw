@@ -1,26 +1,45 @@
-import { TLShape, Vec2dModel } from '@tldraw/tlschema'
-import { Box2d } from '../../../primitives/Box2d'
-import { Vec2d } from '../../../primitives/Vec2d'
+import { TLBaseShape } from '@tldraw/tlschema'
+import { exhaustiveSwitchError } from '@tldraw/utils'
+import { Vec } from '../../../primitives/Vec'
+import { TLResizeInfo } from '../ShapeUtil'
 
+/**
+ * Resize a shape that has a scale prop.
+ *
+ * @param shape - The shape to resize
+ * @param info - The resize info
+ *
+ * @public */
 export function resizeScaled(
-	shape: Extract<TLShape, { props: { scale: number } }>,
-	{
-		initialBounds,
-		scaleX,
-		scaleY,
-		newPoint,
-	}: {
-		newPoint: Vec2dModel
-		initialBounds: Box2d
-		scaleX: number
-		scaleY: number
-	}
+	shape: TLBaseShape<any, { scale: number }>,
+	{ initialBounds, scaleX, scaleY, newPoint, handle }: TLResizeInfo<any>
 ) {
-	// Compute the new scale (to apply to the scale prop)
-	const scaleDelta = Math.max(0.01, Math.min(Math.abs(scaleX), Math.abs(scaleY)))
+	let scaleDelta: number
+	switch (handle) {
+		case 'bottom_left':
+		case 'bottom_right':
+		case 'top_left':
+		case 'top_right': {
+			scaleDelta = Math.max(0.01, Math.max(Math.abs(scaleX), Math.abs(scaleY)))
+			break
+		}
+		case 'left':
+		case 'right': {
+			scaleDelta = Math.max(0.01, Math.abs(scaleX))
+			break
+		}
+		case 'bottom':
+		case 'top': {
+			scaleDelta = Math.max(0.01, Math.abs(scaleY))
+			break
+		}
+		default: {
+			throw exhaustiveSwitchError(handle)
+		}
+	}
 
 	// Compute the offset (if flipped X or flipped Y)
-	const offset = new Vec2d(0, 0)
+	const offset = new Vec(0, 0)
 
 	if (scaleX < 0) {
 		offset.x = -(initialBounds.width * scaleDelta)
@@ -30,7 +49,7 @@ export function resizeScaled(
 	}
 
 	// Apply the offset to the new point
-	const { x, y } = Vec2d.Add(newPoint, offset.rot(shape.rotation))
+	const { x, y } = Vec.Add(newPoint, offset.rot(shape.rotation))
 
 	return {
 		x,

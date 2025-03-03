@@ -1,60 +1,54 @@
-import { isShapeId, TLShape, TLShapePartial } from '@tldraw/tlschema'
-import { structuredClone } from '@tldraw/utils'
+import { isShapeId, TLShape, TLShapeId, TLShapePartial } from '@tldraw/tlschema'
+import { compact } from '@tldraw/utils'
 import { Editor } from '../editor/Editor'
-import { Matrix2d } from '../primitives/Matrix2d'
+import { Mat } from '../primitives/Mat'
 import { canonicalizeRotation } from '../primitives/utils'
-import { Vec2d } from '../primitives/Vec2d'
+import { Vec, VecLike } from '../primitives/Vec'
 
 /** @internal */
-export function getRotationSnapshot({ editor }: { editor: Editor }): TLRotationSnapshot | null {
-	const {
-		selectionRotation,
-		selectionRotatedPageBounds: selectionBounds,
-		inputs: { originPagePoint },
-		selectedShapes,
-	} = editor
+export function getRotationSnapshot({
+	editor,
+	ids,
+}: {
+	editor: Editor
+	ids: TLShapeId[]
+}): TLRotationSnapshot | null {
+	const shapes = compact(ids.map((id) => editor.getShape(id)))
+	const rotation = editor.getShapesSharedRotation(ids)
+	const rotatedPageBounds = editor.getShapesRotatedPageBounds(ids)
 
 	// todo: this assumes we're rotating the selected shapes
 	// if we try to rotate shapes that aren't selected, this
 	// will produce the wrong results
 
 	// Return null if there are no selected shapes
-	if (!selectionBounds) {
+	if (!rotatedPageBounds) {
 		return null
 	}
 
-	const selectionPageCenter = selectionBounds.center
-		.clone()
-		.rotWith(selectionBounds.point, selectionRotation)
+	const pageCenter = rotatedPageBounds.center.clone().rotWith(rotatedPageBounds.point, rotation)
 
 	return {
-		selectionPageCenter: selectionPageCenter,
-		initialCursorAngle: selectionPageCenter.angle(originPagePoint),
-		initialSelectionRotation: selectionRotation,
-		shapeSnapshots: selectedShapes.map((shape) => ({
-			shape: structuredClone(shape),
+		pageCenter,
+		initialCursorAngle: pageCenter.angle(editor.inputs.originPagePoint),
+		initialShapesRotation: rotation,
+		shapeSnapshots: shapes.map((shape) => ({
+			shape,
 			initialPagePoint: editor.getShapePageTransform(shape.id)!.point(),
 		})),
 	}
 }
 
 /**
- * Info about a rotation that can be applied to the editor's selected shapes.
- *
- * @param selectionPageCenter - The center of the selection in page coordinates
- * @param initialCursorAngle - The angle of the cursor relative to the selection center when the rotation started
- * @param initialSelectionRotation - The rotation of the selection when the rotation started
- * @param shapeSnapshots - Info about each shape that is being rotated
- *
- * @public
+ * @internal
  **/
-export type TLRotationSnapshot = {
-	selectionPageCenter: Vec2d
+export interface TLRotationSnapshot {
+	pageCenter: Vec
 	initialCursorAngle: number
-	initialSelectionRotation: number
+	initialShapesRotation: number
 	shapeSnapshots: {
 		shape: TLShape
-		initialPagePoint: Vec2d
+		initialPagePoint: Vec
 	}[]
 }
 
@@ -64,13 +58,15 @@ export function applyRotationToSnapshotShapes({
 	editor,
 	snapshot,
 	stage,
+	centerOverride,
 }: {
 	delta: number
 	snapshot: TLRotationSnapshot
 	editor: Editor
 	stage: 'start' | 'update' | 'end' | 'one-off'
+	centerOverride?: VecLike
 }) {
-	const { selectionPageCenter, shapeSnapshots } = snapshot
+	const { pageCenter, shapeSnapshots } = snapshot
 
 	editor.updateShapes(
 		shapeSnapshots.map(({ shape, initialPagePoint }) => {
@@ -79,14 +75,14 @@ export function applyRotationToSnapshotShapes({
 
 			const parentTransform = isShapeId(shape.parentId)
 				? editor.getShapePageTransform(shape.parentId)!
-				: Matrix2d.Identity()
+				: Mat.Identity()
 
-			const newPagePoint = Vec2d.RotWith(initialPagePoint, selectionPageCenter, delta)
+			const newPagePoint = Vec.RotWith(initialPagePoint, centerOverride ?? pageCenter, delta)
 
-			const newLocalPoint = Matrix2d.applyToPoint(
+			const newLocalPoint = Mat.applyToPoint(
 				// use the current parent transform in case it has moved/resized since the start
 				// (e.g. if rotating a shape at the edge of a group)
-				Matrix2d.Inverse(parentTransform),
+				Mat.Inverse(parentTransform),
 				newPagePoint
 			)
 			const newRotation = canonicalizeRotation(shape.rotation + delta)

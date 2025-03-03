@@ -1,55 +1,81 @@
-import { defineMigrations } from '@tldraw/store'
 import { T } from '@tldraw/validate'
-import { DefaultColorStyle } from '../styles/TLColorStyle'
-import { DefaultFontStyle } from '../styles/TLFontStyle'
-import { DefaultHorizontalAlignStyle } from '../styles/TLHorizontalAlignStyle'
-import { DefaultSizeStyle } from '../styles/TLSizeStyle'
-import { ShapePropsType, TLBaseShape } from './TLBaseShape'
+import { TLRichText, richTextValidator, toRichText } from '../misc/TLRichText'
+import { createShapePropsMigrationIds, createShapePropsMigrationSequence } from '../records/TLShape'
+import { RecordProps } from '../recordsWithProps'
+import { DefaultColorStyle, TLDefaultColorStyle } from '../styles/TLColorStyle'
+import { DefaultFontStyle, TLDefaultFontStyle } from '../styles/TLFontStyle'
+import { DefaultSizeStyle, TLDefaultSizeStyle } from '../styles/TLSizeStyle'
+import { DefaultTextAlignStyle, TLDefaultTextAlignStyle } from '../styles/TLTextAlignStyle'
+import { TLBaseShape } from './TLBaseShape'
 
 /** @public */
-export const textShapeProps = {
-	color: DefaultColorStyle,
-	size: DefaultSizeStyle,
-	font: DefaultFontStyle,
-	align: DefaultHorizontalAlignStyle,
-	w: T.nonZeroNumber,
-	text: T.string,
-	scale: T.nonZeroNumber,
-	autoSize: T.boolean,
+export interface TLTextShapeProps {
+	color: TLDefaultColorStyle
+	size: TLDefaultSizeStyle
+	font: TLDefaultFontStyle
+	textAlign: TLDefaultTextAlignStyle
+	w: number
+	richText: TLRichText
+	scale: number
+	autoSize: boolean
 }
-
-/** @public */
-export type TLTextShapeProps = ShapePropsType<typeof textShapeProps>
 
 /** @public */
 export type TLTextShape = TLBaseShape<'text', TLTextShapeProps>
 
-const Versions = {
+/** @public */
+export const textShapeProps: RecordProps<TLTextShape> = {
+	color: DefaultColorStyle,
+	size: DefaultSizeStyle,
+	font: DefaultFontStyle,
+	textAlign: DefaultTextAlignStyle,
+	w: T.nonZeroNumber,
+	richText: richTextValidator,
+	scale: T.nonZeroNumber,
+	autoSize: T.boolean,
+}
+
+const Versions = createShapePropsMigrationIds('text', {
 	RemoveJustify: 1,
-} as const
+	AddTextAlign: 2,
+	AddRichText: 3,
+})
 
-/** @internal */
-export const textShapeMigrations = defineMigrations({
-	currentVersion: Versions.RemoveJustify,
-	migrators: {
-		[Versions.RemoveJustify]: {
-			up: (shape) => {
-				let newAlign = shape.props.align
-				if (newAlign === 'justify') {
-					newAlign = 'start'
-				}
+export { Versions as textShapeVersions }
 
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						align: newAlign,
-					},
+/** @public */
+export const textShapeMigrations = createShapePropsMigrationSequence({
+	sequence: [
+		{
+			id: Versions.RemoveJustify,
+			up: (props) => {
+				if (props.align === 'justify') {
+					props.align = 'start'
 				}
 			},
-			down: (shape) => {
-				return { ...shape }
+			down: 'retired',
+		},
+		{
+			id: Versions.AddTextAlign,
+			up: (props) => {
+				props.textAlign = props.align
+				delete props.align
+			},
+			down: (props) => {
+				props.align = props.textAlign
+				delete props.textAlign
 			},
 		},
-	},
+		{
+			id: Versions.AddRichText,
+			up: (props) => {
+				props.richText = toRichText(props.text)
+				delete props.text
+			},
+			// N.B. Explicitly no down state so that we force clients to update.
+			// down: (props) => {
+			// 	delete props.richText
+			// },
+		},
+	],
 })

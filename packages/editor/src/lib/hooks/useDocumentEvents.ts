@@ -1,7 +1,9 @@
-import { useValue } from '@tldraw/state'
+import { useValue } from '@tldraw/state-react'
 import { useEffect } from 'react'
-import { TLKeyboardEventInfo, TLPointerEventInfo } from '../editor/types/event-types'
-import { preventDefault } from '../utils/dom'
+import { Editor } from '../editor/Editor'
+import { TLKeyboardEventInfo } from '../editor/types/event-types'
+import { activeElementShouldCaptureKeys, preventDefault, stopEventPropagation } from '../utils/dom'
+import { isAccelKey } from '../utils/keyboard'
 import { useContainer } from './useContainer'
 import { useEditor } from './useEditor'
 
@@ -9,10 +11,42 @@ export function useDocumentEvents() {
 	const editor = useEditor()
 	const container = useContainer()
 
-	const isAppFocused = useValue('isFocused', () => editor.instanceState.isFocused, [editor])
+	const isAppFocused = useValue('isFocused', () => editor.getIsFocused(), [editor])
+
+	// Prevent the browser's default drag and drop behavior on our container (UI, etc)
+	useEffect(() => {
+		if (!container) return
+
+		function onDrop(e: DragEvent) {
+			// this is tricky: we don't want the event to do anything
+			// here, but we do want it to make its way to the canvas,
+			// even if the drop is over some other element (like a toolbar),
+			// so we're going to flag the event and then dispatch
+			// it to the canvas; the canvas will handle it and try to
+			// stop it from propagating back, but in case we do see it again,
+			// we'll look for the flag so we know to stop it from being
+			// re-dispatched, which would lead to an infinite loop.
+			if ((e as any).isSpecialRedispatchedEvent) return
+			preventDefault(e)
+			stopEventPropagation(e)
+			const cvs = container.querySelector('.tl-canvas')
+			if (!cvs) return
+			const newEvent = new DragEvent(e.type, e)
+			;(newEvent as any).isSpecialRedispatchedEvent = true
+			cvs.dispatchEvent(newEvent)
+		}
+
+		container.addEventListener('dragover', onDrop)
+		container.addEventListener('drop', onDrop)
+		return () => {
+			container.removeEventListener('dragover', onDrop)
+			container.removeEventListener('drop', onDrop)
+		}
+	}, [container])
 
 	useEffect(() => {
-		if (typeof matchMedia === undefined) return
+		if (typeof window === 'undefined' || !('matchMedia' in window)) return
+
 		// https://developer.mozilla.org/en-US/docs/Web/API/Window/devicePixelRatio#monitoring_screen_resolution_or_zoom_level_changes
 		let remove: (() => void) | null = null
 		const updatePixelRatio = () => {
@@ -21,9 +55,28 @@ export function useDocumentEvents() {
 			}
 			const mqString = `(resolution: ${window.devicePixelRatio}dppx)`
 			const media = matchMedia(mqString)
-			media.addEventListener('change', updatePixelRatio)
+			// Safari only started supporting `addEventListener('change',...) in version 14
+			// https://developer.mozilla.org/en-US/docs/Web/API/MediaQueryList/change_event
+			const safariCb = (ev: any) => {
+				if (ev.type === 'change') {
+					updatePixelRatio()
+				}
+			}
+			if (media.addEventListener) {
+				media.addEventListener('change', updatePixelRatio)
+				// eslint-disable-next-line @typescript-eslint/no-deprecated
+			} else if (media.addListener) {
+				// eslint-disable-next-line @typescript-eslint/no-deprecated
+				media.addListener(safariCb)
+			}
 			remove = () => {
-				media.removeEventListener('change', updatePixelRatio)
+				if (media.removeEventListener) {
+					media.removeEventListener('change', updatePixelRatio)
+					// eslint-disable-next-line @typescript-eslint/no-deprecated
+				} else if (media.removeListener) {
+					// eslint-disable-next-line @typescript-eslint/no-deprecated
+					media.removeListener(safariCb)
+				}
 			}
 			editor.updateInstanceState({ devicePixelRatio: window.devicePixelRatio })
 		}
@@ -40,8 +93,8 @@ export function useDocumentEvents() {
 			if (
 				e.altKey &&
 				// todo: When should we allow the alt key to be used? Perhaps states should declare which keys matter to them?
-				(editor.isIn('zoom') || !editor.root.path.value.endsWith('.idle')) &&
-				!isFocusingInput()
+				(editor.isIn('zoom') || !editor.getPath().endsWith('.idle')) &&
+				!areShortcutsDisabled(editor)
 			) {
 				// On windows the alt key opens the menu bar.
 				// We want to prevent that if the user is doing something else,
@@ -68,39 +121,18 @@ export function useDocumentEvents() {
 					break
 				}
 				case 'Tab': {
-					if (isFocusingInput() || editor.isMenuOpen) {
+					if (areShortcutsDisabled(editor)) {
 						return
 					}
 					break
 				}
 				case ',': {
-					// todo: extract to extension
-					// This seems very fragile; the comma key here is used to send pointer events,
-					// but that means it also needs to know about pen mode, hovered ids, etc.
-					if (!isFocusingInput()) {
-						preventDefault(e)
-						if (!editor.inputs.keys.has('Comma')) {
-							const { x, y, z } = editor.inputs.currentScreenPoint
-							editor.inputs.keys.add('Comma')
-
-							const info: TLPointerEventInfo = {
-								type: 'pointer',
-								name: 'pointer_down',
-								point: { x, y, z },
-								shiftKey: e.shiftKey,
-								altKey: e.altKey,
-								ctrlKey: e.metaKey || e.ctrlKey,
-								pointerId: 0,
-								button: 0,
-								isPen: editor.instanceState.isPenMode,
-								target: 'canvas',
-							}
-
-							editor.dispatch(info)
-							return
-						}
-					}
-					break
+					// this was moved to useKeyBoardShortcuts; it's possible
+					// that the comma key is pressed when the container is not
+					// focused, for example when the user has just interacted
+					// with the toolbar. We need to handle it on the window
+					// (ofc ensuring it's a correct time for a shortcut)
+					return
 				}
 				case 'Escape': {
 					// In certain browsers, pressing escape while in full screen mode
@@ -110,11 +142,17 @@ export function useDocumentEvents() {
 					// returns to the select tool. When the user has selected shapes,
 					// escape de-selects them. Only when the user's selection is empty
 					// should we allow escape to do its normal thing.
-					if (editor.editingShape || editor.selectedShapeIds.length > 0) {
-						e.preventDefault()
+
+					if (editor.getEditingShape() || editor.getSelectedShapeIds().length > 0) {
+						preventDefault(e)
 					}
 
-					if (!editor.inputs.keys.has('Escape')) {
+					// Don't do anything if we open menus open
+					if (editor.menus.getOpenMenus().length > 0) return
+
+					if (editor.inputs.keys.has('Escape')) {
+						// noop
+					} else {
 						editor.inputs.keys.add('Escape')
 
 						editor.cancel()
@@ -128,7 +166,7 @@ export function useDocumentEvents() {
 					return
 				}
 				default: {
-					if (isFocusingInput() || editor.isMenuOpen) {
+					if (areShortcutsDisabled(editor)) {
 						return
 					}
 				}
@@ -142,6 +180,8 @@ export function useDocumentEvents() {
 				shiftKey: e.shiftKey,
 				altKey: e.altKey,
 				ctrlKey: e.metaKey || e.ctrlKey,
+				metaKey: e.metaKey,
+				accelKey: isAccelKey(e),
 			}
 
 			editor.dispatch(info)
@@ -151,33 +191,12 @@ export function useDocumentEvents() {
 			if ((e as any).isKilled) return
 			;(e as any).isKilled = true
 
-			if (isFocusingInput() || editor.isMenuOpen) {
+			if (areShortcutsDisabled(editor)) {
 				return
 			}
 
-			// Use the , key to send pointer events
 			if (e.key === ',') {
-				if (document.activeElement?.ELEMENT_NODE) preventDefault(e)
-				if (editor.inputs.keys.has(e.code)) {
-					const { x, y, z } = editor.inputs.currentScreenPoint
-
-					editor.inputs.keys.delete(e.code)
-
-					const info: TLPointerEventInfo = {
-						type: 'pointer',
-						name: 'pointer_up',
-						point: { x, y, z },
-						shiftKey: e.shiftKey,
-						altKey: e.altKey,
-						ctrlKey: e.metaKey || e.ctrlKey,
-						pointerId: 0,
-						button: 0,
-						isPen: editor.instanceState.isPenMode,
-						target: 'canvas',
-					}
-					editor.dispatch(info)
-					return
-				}
+				return
 			}
 
 			const info: TLKeyboardEventInfo = {
@@ -188,6 +207,8 @@ export function useDocumentEvents() {
 				shiftKey: e.shiftKey,
 				altKey: e.altKey,
 				ctrlKey: e.metaKey || e.ctrlKey,
+				metaKey: e.metaKey,
+				accelKey: isAccelKey(e),
 			}
 
 			editor.dispatch(info)
@@ -204,9 +225,10 @@ export function useDocumentEvents() {
 				// if the touch area overlaps with the screen edges
 				// it's likely to trigger the navigation. We prevent the
 				// touchstart event in that case.
+				// todo: make this relative to the actual window, not the editor's screen bounds
 				if (
 					touchXPosition - touchXRadius < 10 ||
-					touchXPosition + touchXRadius > editor.viewportScreenBounds.width - 10
+					touchXPosition + touchXRadius > editor.getViewportScreenBounds().width - 10
 				) {
 					if ((e.target as HTMLElement)?.tagName === 'BUTTON') {
 						// Force a click before bailing
@@ -220,6 +242,7 @@ export function useDocumentEvents() {
 
 		// Prevent wheel events that occur inside of the container
 		const handleWheel = (e: WheelEvent) => {
+			// Ctrl/Meta key indicates a pinch event (funny, eh?)
 			if (container.contains(e.target as Node) && (e.ctrlKey || e.metaKey)) {
 				preventDefault(e)
 			}
@@ -251,18 +274,6 @@ export function useDocumentEvents() {
 	}, [editor, container, isAppFocused])
 }
 
-const INPUTS = ['input', 'select', 'button', 'textarea']
-
-function isFocusingInput() {
-	const { activeElement } = document
-
-	if (
-		activeElement &&
-		(activeElement.getAttribute('contenteditable') ||
-			INPUTS.indexOf(activeElement.tagName.toLowerCase()) > -1)
-	) {
-		return true
-	}
-
-	return false
+function areShortcutsDisabled(editor: Editor) {
+	return editor.menus.hasOpenMenus() || activeElementShouldCaptureKeys()
 }

@@ -1,4 +1,4 @@
-import { createShapeId } from '@tldraw/editor'
+import { TLTextShape, createShapeId, toRichText } from '@tldraw/editor'
 import { TestEditor } from './TestEditor'
 
 let editor: TestEditor
@@ -13,26 +13,26 @@ afterEach(() => {
 describe('When editing text', () => {
 	it('preserves the top center when center aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
-					align: 'middle',
+					richText: toRichText('Hello'),
+					textAlign: 'middle',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				props: {
-					text: 'Hello\nworld!',
+					richText: toRichText('Hello\nworld!'),
 				},
 			},
 		])
@@ -47,7 +47,7 @@ describe('When editing text', () => {
 
 	it('preserved the right center when center aligned and rotated 90deg', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
@@ -55,15 +55,17 @@ describe('When editing text', () => {
 				y: 0,
 				rotation: Math.PI / 2,
 				props: {
-					text: 'Hello',
-					align: 'middle',
+					richText: toRichText('Hello'),
+					textAlign: 'middle',
 					scale: 2,
 				},
 			},
 		])
 
 		const boundsA = editor.getShapePageBounds(id)!
-		editor.updateShapes([{ id, type: 'text', props: { text: 'Hello, world!' } }])
+		editor.updateShapes<TLTextShape>([
+			{ id, type: 'text', props: { richText: toRichText('Hello, world!') } },
+		])
 		const boundsB = editor.getShapePageBounds(id)!
 		expect(boundsA.x).toBeCloseTo(boundsB.x)
 		expect(boundsA.y).not.toBeCloseTo(boundsB.y)
@@ -73,26 +75,26 @@ describe('When editing text', () => {
 
 	it('preserves the top left corner when start aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
-					align: 'start',
+					richText: toRichText('Hello'),
+					textAlign: 'start',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				props: {
-					text: 'Hello\nworld!',
+					richText: toRichText('Hello\nworld!'),
 				},
 			},
 		])
@@ -107,26 +109,26 @@ describe('When editing text', () => {
 
 	it('preserves the top right edge when end aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
-					align: 'end',
+					richText: toRichText('Hello'),
+					textAlign: 'end',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				props: {
-					text: 'Hello\nworld!',
+					richText: toRichText('Hello\nworld!'),
 				},
 			},
 		])
@@ -143,22 +145,22 @@ describe('When editing text', () => {
 describe('When changing text size', () => {
 	it('preserves the center when center aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
+					richText: toRichText('Hello'),
 					size: 'm',
-					align: 'middle',
+					textAlign: 'middle',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
@@ -178,22 +180,22 @@ describe('When changing text size', () => {
 
 	it('preserves the center left point when start aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
+					richText: toRichText('Hello'),
 					size: 'm',
-					align: 'start',
+					textAlign: 'start',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
@@ -213,22 +215,22 @@ describe('When changing text size', () => {
 
 	it('preserves the top right edge when end aligned', () => {
 		const id = createShapeId()
-		editor.createShapes([
+		editor.createShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
 				x: 0,
 				y: 0,
 				props: {
-					text: 'Hello',
+					richText: toRichText('Hello'),
 					size: 'm',
-					align: 'end',
+					textAlign: 'end',
 					scale: 2,
 				},
 			},
 		])
 		const boundsA = editor.getShapePageBounds(id)
-		editor.updateShapes([
+		editor.updateShapes<TLTextShape>([
 			{
 				id,
 				type: 'text',
@@ -245,25 +247,25 @@ describe('When changing text size', () => {
 		expect(boundsA!.maxX).toEqual(boundsB!.maxX)
 		expect(boundsA!.maxY).not.toEqual(boundsB!.maxY)
 	})
-})
 
-it('preserves the top left when the text has text', () => {
-	const x = 0
-	const y = 0
-	const id = createShapeId()
-	editor.createShapes([
-		{
-			id,
-			type: 'text',
-			x: 0,
-			y: 0,
-			props: {
-				text: 'Hello',
+	it('preserves the top left when the text has text', () => {
+		const x = 0
+		const y = 0
+		const id = createShapeId()
+		editor.createShapes([
+			{
+				id,
+				type: 'text',
+				x: 0,
+				y: 0,
+				props: {
+					richText: toRichText('Hello'),
+				},
 			},
-		},
-	])
-	expect(editor.getShape(id)).toMatchObject({
-		x,
-		y,
+		])
+		expect(editor.getShape(id)).toMatchObject({
+			x,
+			y,
+		})
 	})
 })

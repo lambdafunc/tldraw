@@ -1,73 +1,63 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, screen } from '@testing-library/react'
 import {
 	BaseBoxShapeTool,
 	BaseBoxShapeUtil,
-	Canvas,
 	Editor,
 	HTMLContainer,
+	TLAssetStore,
 	TLBaseShape,
 	TldrawEditor,
 	createShapeId,
 	createTLStore,
 	noop,
 } from '@tldraw/editor'
+import { StrictMode } from 'react'
+import { defaultShapeUtils } from '../lib/defaultShapeUtils'
 import { defaultTools } from '../lib/defaultTools'
 import { GeoShapeUtil } from '../lib/shapes/geo/GeoShapeUtil'
-
-let originalFetch: typeof window.fetch
-beforeEach(() => {
-	window.fetch = jest.fn().mockImplementation((...args: Parameters<typeof fetch>) => {
-		if (args[0] === '/icons/icon/icon-names.json') {
-			return Promise.resolve({ json: () => Promise.resolve([]) } as Response)
-		}
-		return originalFetch(...args)
-	})
-})
-
-afterEach(() => {
-	jest.restoreAllMocks()
-	window.fetch = originalFetch
-})
+import { defaultAddFontsFromNode, tipTapDefaultExtensions } from '../lib/utils/text/richText'
+import {
+	renderTldrawComponent,
+	renderTldrawComponentWithEditor,
+} from './testutils/renderTldrawComponent'
 
 function checkAllShapes(editor: Editor, shapes: string[]) {
-	expect(Object.keys(editor!.store.schema.types.shape.migrations.subTypeMigrations!)).toStrictEqual(
-		shapes
-	)
-
 	expect(Object.keys(editor!.shapeUtils)).toStrictEqual(shapes)
+}
+
+const textOptions = {
+	addFontsFromNode: defaultAddFontsFromNode,
+	tipTapConfig: {
+		extensions: tipTapDefaultExtensions,
+	},
 }
 
 describe('<TldrawEditor />', () => {
 	it('Renders without crashing', async () => {
-		render(
-			<TldrawEditor tools={defaultTools} autoFocus initialState="select">
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
-		)
-		await screen.findByTestId('canvas-1')
+		await renderTldrawComponent(<TldrawEditor tools={defaultTools} initialState="select" />, {
+			waitForPatterns: false,
+		})
+		await screen.findByTestId('canvas')
 	})
 
 	it('Creates its own store with core shapes', async () => {
 		let editor: Editor
-		render(
+		await renderTldrawComponent(
 			<TldrawEditor
 				onMount={(e) => {
 					editor = e
 				}}
 				initialState="select"
 				tools={defaultTools}
-				autoFocus
-			>
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 		checkAllShapes(editor!, ['group'])
 	})
 
 	it('Can be created with default shapes', async () => {
 		let editor: Editor
-		render(
+		await renderTldrawComponent(
 			<TldrawEditor
 				shapeUtils={[]}
 				tools={defaultTools}
@@ -75,12 +65,9 @@ describe('<TldrawEditor />', () => {
 				onMount={(e) => {
 					editor = e
 				}}
-				autoFocus
-			>
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 		expect(editor!).toBeTruthy()
 
 		checkAllShapes(editor!, ['group'])
@@ -88,7 +75,7 @@ describe('<TldrawEditor />', () => {
 
 	it('Renders with an external store', async () => {
 		const store = createTLStore({ shapeUtils: [] })
-		render(
+		await renderTldrawComponent(
 			<TldrawEditor
 				store={store}
 				tools={defaultTools}
@@ -96,12 +83,9 @@ describe('<TldrawEditor />', () => {
 				onMount={(editor) => {
 					expect(editor.store).toBe(store)
 				}}
-				autoFocus
-			>
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 	})
 
 	it('throws if the store has different shapes to the ones passed in', async () => {
@@ -111,7 +95,6 @@ describe('<TldrawEditor />', () => {
 		// 		<TldrawEditor
 		// 			shapeUtils={[GroupShapeUtil]}
 		// 			store={createTLStore({ shapeUtils: [] })}
-		// 			autoFocus
 		// 			components={{
 		// 				ErrorFallback: ({ error }) => {
 		// 					throw error
@@ -129,7 +112,6 @@ describe('<TldrawEditor />', () => {
 		// 		render(
 		// 			<TldrawEditor
 		// 				store={createTLStore({ shapeUtils: [GroupShapeUtil] })}
-		// 				autoFocus
 		// 				components={{
 		// 					ErrorFallback: ({ error }) => {
 		// 						throw error
@@ -148,18 +130,15 @@ describe('<TldrawEditor />', () => {
 	it('Accepts fresh versions of store and calls `onMount` for each one', async () => {
 		const initialStore = createTLStore({ shapeUtils: [] })
 		const onMount = jest.fn()
-		const rendered = render(
+		const rendered = await renderTldrawComponent(
 			<TldrawEditor
 				initialState="select"
 				tools={defaultTools}
 				store={initialStore}
 				onMount={onMount}
-				autoFocus
-			>
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 		const initialEditor = onMount.mock.lastCall[0]
 		jest.spyOn(initialEditor, 'dispose')
 		expect(initialEditor.store).toBe(initialStore)
@@ -170,28 +149,16 @@ describe('<TldrawEditor />', () => {
 				initialState="select"
 				store={initialStore}
 				onMount={onMount}
-				autoFocus
-			>
-				<div data-testid="canvas-2" />
-			</TldrawEditor>
+			/>
 		)
-		await screen.findByTestId('canvas-2')
 		// not called again:
 		expect(onMount).toHaveBeenCalledTimes(1)
 		// re-render with a new store:
 		const newStore = createTLStore({ shapeUtils: [] })
 		rendered.rerender(
-			<TldrawEditor
-				tools={defaultTools}
-				initialState="select"
-				store={newStore}
-				onMount={onMount}
-				autoFocus
-			>
-				<div data-testid="canvas-3" />
-			</TldrawEditor>
+			<TldrawEditor tools={defaultTools} initialState="select" store={newStore} onMount={onMount} />
 		)
-		await screen.findByTestId('canvas-3')
+		await rendered.findAllByTestId('canvas')
 		expect(initialEditor.dispose).toHaveBeenCalledTimes(1)
 		expect(onMount).toHaveBeenCalledTimes(2)
 		expect(onMount.mock.lastCall[0].store).toBe(newStore)
@@ -199,30 +166,22 @@ describe('<TldrawEditor />', () => {
 
 	it('Renders the canvas and shapes', async () => {
 		let editor = {} as Editor
-		await act(async () =>
-			render(
-				<TldrawEditor
-					shapeUtils={[GeoShapeUtil]}
-					initialState="select"
-					tools={defaultTools}
-					autoFocus
-					onMount={(editorApp) => {
-						editor = editorApp
-					}}
-				>
-					<Canvas />
-					<div data-testid="canvas-1" />
-				</TldrawEditor>
-			)
+		await renderTldrawComponent(
+			<TldrawEditor
+				shapeUtils={[GeoShapeUtil]}
+				initialState="select"
+				tools={defaultTools}
+				onMount={(editorApp) => {
+					editor = editorApp
+				}}
+				textOptions={textOptions}
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 
 		expect(editor).toBeTruthy()
 		await act(async () => {
-			editor.updateInstanceState(
-				{ screenBounds: { x: 0, y: 0, w: 1080, h: 720 } },
-				{ ephemeral: true, squashing: true }
-			)
+			editor.updateInstanceState({ screenBounds: { x: 0, y: 0, w: 1080, h: 720 } })
 		})
 
 		const id = createShapeId()
@@ -249,22 +208,205 @@ describe('<TldrawEditor />', () => {
 
 		// Is the shape's component rendering?
 		expect(document.querySelectorAll('.tl-shape')).toHaveLength(1)
-
-		expect(document.querySelectorAll('.tl-shape-indicator')).toHaveLength(0)
+		// though indicator should be display none
+		expect(document.querySelectorAll('.tl-shape-indicator')).toHaveLength(1)
 
 		// Select the shape
 		await act(async () => editor.select(id))
 
-		expect(editor.selectedShapeIds.length).toBe(1)
-
-		// Is the shape's component rendering?
+		expect(editor.getSelectedShapeIds().length).toBe(1)
+		// though indicator it should be visible
 		expect(document.querySelectorAll('.tl-shape-indicator')).toHaveLength(1)
 
 		// Select the eraser tool...
 		await act(async () => editor.setCurrentTool('eraser'))
 
 		// Is the editor's current tool correct?
-		expect(editor.currentToolId).toBe('eraser')
+		expect(editor.getCurrentToolId()).toBe('eraser')
+	})
+
+	it('renders correctly in strict mode', async () => {
+		const editorInstances = new Set<Editor>()
+		const onMount = jest.fn((editor: Editor) => {
+			editorInstances.add(editor)
+		})
+		await renderTldrawComponent(
+			<StrictMode>
+				<TldrawEditor tools={defaultTools} initialState="select" onMount={onMount} />
+			</StrictMode>,
+			{ waitForPatterns: false }
+		)
+
+		// we should only get one editor instance
+		expect(editorInstances.size).toBe(1)
+		// but strict mode will cause onMount to be called twice
+		expect(onMount).toHaveBeenCalledTimes(2)
+	})
+
+	it('allows updating camera options without re-creating the editor', async () => {
+		const editors: Editor[] = []
+		const onMount = jest.fn((editor: Editor) => {
+			if (!editors.includes(editor)) editors.push(editor)
+		})
+
+		const renderer = await renderTldrawComponent(<TldrawEditor onMount={onMount} />, {
+			waitForPatterns: false,
+		})
+
+		expect(editors.length).toBe(1)
+		expect(editors[0].getCameraOptions().isLocked).toBe(false)
+
+		renderer.rerender(<TldrawEditor onMount={onMount} cameraOptions={{ isLocked: true }} />)
+		expect(editors.length).toBe(1)
+		expect(editors[0].getCameraOptions().isLocked).toBe(true)
+	})
+
+	it('will populate the store from the snapshot prop', async () => {
+		const snapshot = {
+			schema: {
+				schemaVersion: 2,
+				sequences: {
+					'com.tldraw.store': 4,
+					'com.tldraw.asset': 1,
+					'com.tldraw.camera': 1,
+					'com.tldraw.document': 2,
+					'com.tldraw.instance': 25,
+					'com.tldraw.instance_page_state': 5,
+					'com.tldraw.page': 1,
+					'com.tldraw.instance_presence': 5,
+					'com.tldraw.pointer': 1,
+					'com.tldraw.shape': 4,
+					'com.tldraw.asset.bookmark': 2,
+					'com.tldraw.asset.image': 5,
+					'com.tldraw.asset.video': 5,
+					'com.tldraw.shape.arrow': 5,
+					'com.tldraw.shape.bookmark': 2,
+					'com.tldraw.shape.draw': 2,
+					'com.tldraw.shape.embed': 4,
+					'com.tldraw.shape.frame': 0,
+					'com.tldraw.shape.geo': 9,
+					'com.tldraw.shape.group': 0,
+					'com.tldraw.shape.highlight': 1,
+					'com.tldraw.shape.image': 4,
+					'com.tldraw.shape.line': 5,
+					'com.tldraw.shape.note': 7,
+					'com.tldraw.shape.text': 2,
+					'com.tldraw.shape.video': 2,
+					'com.tldraw.binding.arrow': 0,
+				},
+			},
+			store: {
+				'document:document': {
+					gridSize: 10,
+					name: '',
+					meta: {},
+					id: 'document:document',
+					typeName: 'document',
+				},
+				'page:page': { meta: {}, id: 'page:page', name: 'Page 1', index: 'a1', typeName: 'page' },
+				'shape:SxHfVyCVdM4Ryl27eJNRD': {
+					x: 608.718221918489,
+					y: 298.97020222415506,
+					rotation: 0,
+					isLocked: false,
+					opacity: 1,
+					meta: {},
+					id: 'shape:SxHfVyCVdM4Ryl27eJNRD',
+					type: 'geo',
+					props: {
+						w: 152.74967383200806,
+						h: 134.57489438369782,
+						geo: 'rectangle',
+						color: 'black',
+						labelColor: 'black',
+						fill: 'none',
+						dash: 'draw',
+						size: 'm',
+						font: 'draw',
+						text: '',
+						align: 'middle',
+						verticalAlign: 'middle',
+						growY: 0,
+						url: '',
+						scale: 1,
+					},
+					parentId: 'page:page',
+					index: 'a1',
+					typeName: 'shape',
+				},
+			},
+		} as any
+
+		const { editor } = await renderTldrawComponentWithEditor(
+			(onMount) => (
+				<TldrawEditor
+					onMount={onMount}
+					shapeUtils={defaultShapeUtils}
+					snapshot={snapshot}
+					textOptions={textOptions}
+				/>
+			),
+			{ waitForPatterns: true }
+		)
+
+		act(() => editor.selectAll())
+
+		expect(editor.getSelectedShapes()).toMatchObject([
+			{
+				id: 'shape:SxHfVyCVdM4Ryl27eJNRD',
+				type: 'geo',
+				props: { w: 152.74967383200806, h: 134.57489438369782 },
+			},
+		])
+	})
+
+	it('passes through the `assets` prop when creating its own in-memory store', async () => {
+		const myUploadFn = jest.fn()
+		const assetStore: TLAssetStore = { upload: myUploadFn }
+
+		const { editor } = await renderTldrawComponentWithEditor(
+			(onMount) => (
+				<TldrawEditor onMount={onMount} shapeUtils={defaultShapeUtils} assets={assetStore} />
+			),
+			{ waitForPatterns: true }
+		)
+
+		expect(editor.store.props.assets.upload).toBe(myUploadFn)
+	})
+
+	it('passes through the `assets` prop when using `persistenceKey`', async () => {
+		const myUploadFn = jest.fn()
+		const assetStore: TLAssetStore = { upload: myUploadFn }
+
+		const { editor } = await renderTldrawComponentWithEditor(
+			(onMount) => (
+				<TldrawEditor
+					onMount={onMount}
+					shapeUtils={defaultShapeUtils}
+					assets={assetStore}
+					persistenceKey="hello-world"
+				/>
+			),
+			{ waitForPatterns: true }
+		)
+
+		expect(editor.store.props.assets.upload).toBe(myUploadFn)
+	})
+
+	it('will not re-create the editor if re-rendered with identical options', async () => {
+		const onMount = jest.fn()
+
+		const renderer = await renderTldrawComponent(
+			<TldrawEditor onMount={onMount} options={{ maxPages: 1 }} />,
+			{
+				waitForPatterns: false,
+			}
+		)
+
+		expect(onMount).toHaveBeenCalledTimes(1)
+
+		renderer.rerender(<TldrawEditor onMount={onMount} options={{ maxPages: 1 }} />)
+		expect(onMount).toHaveBeenCalledTimes(1)
 	})
 })
 
@@ -280,9 +422,12 @@ describe('Custom shapes', () => {
 	class CardUtil extends BaseBoxShapeUtil<CardShape> {
 		static override type = 'card' as const
 
-		override isAspectRatioLocked = (_shape: CardShape) => false
-		override canResize = (_shape: CardShape) => true
-		override canBind = (_shape: CardShape) => true
+		override isAspectRatioLocked(_shape: CardShape) {
+			return false
+		}
+		override canResize(_shape: CardShape) {
+			return true
+		}
 
 		override getDefaultProps(): CardShape['props'] {
 			return {
@@ -325,28 +470,21 @@ describe('Custom shapes', () => {
 
 	it('Uses custom shapes', async () => {
 		let editor = {} as Editor
-		render(
+		await renderTldrawComponent(
 			<TldrawEditor
 				shapeUtils={shapeUtils}
 				tools={[...defaultTools, ...tools]}
-				autoFocus
 				initialState="select"
 				onMount={(editorApp) => {
 					editor = editorApp
 				}}
-			>
-				<Canvas />
-				<div data-testid="canvas-1" />
-			</TldrawEditor>
+			/>,
+			{ waitForPatterns: false }
 		)
-		await screen.findByTestId('canvas-1')
 
 		expect(editor).toBeTruthy()
 		await act(async () => {
-			editor.updateInstanceState(
-				{ screenBounds: { x: 0, y: 0, w: 1080, h: 720 } },
-				{ ephemeral: true, squashing: true }
-			)
+			editor.updateInstanceState({ screenBounds: { x: 0, y: 0, w: 1080, h: 720 } })
 		})
 
 		expect(editor.shapeUtils.card).toBeTruthy()
@@ -387,6 +525,6 @@ describe('Custom shapes', () => {
 		await act(async () => editor.setCurrentTool('card'))
 
 		// Is the editor's current tool correct?
-		expect(editor.currentToolId).toBe('card')
+		expect(editor.getCurrentToolId()).toBe('card')
 	})
 })
