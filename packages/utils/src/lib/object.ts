@@ -9,6 +9,8 @@ export function getOwnProperty<K extends string, V>(
 	key: K
 ): V | undefined
 /** @internal */
+export function getOwnProperty<O extends object>(obj: O, key: string): O[keyof O] | undefined
+/** @internal */
 export function getOwnProperty(obj: object, key: string): unknown
 /** @internal */
 export function getOwnProperty(obj: object, key: string): unknown {
@@ -17,40 +19,6 @@ export function getOwnProperty(obj: object, key: string): unknown {
 	}
 	// @ts-expect-error we know the property exists
 	return obj[key]
-}
-
-/**
- * Deep copy function for TypeScript.
- *
- * @example
- *
- * ```ts
- * const A = deepCopy({ a: 1, b: { c: 2 } })
- * ```
- *
- * @param obj - Target value to be copied.
- * @public
- * @see Source - project, ts-deeply https://github.com/ykdr2017/ts-deepcopy
- * @see Code - pen https://codepen.io/erikvullings/pen/ejyBYg
- */
-export function deepCopy<T = unknown>(obj: T): T {
-	if (!obj) return obj
-	if (Array.isArray(obj)) {
-		const arr: unknown[] = []
-		const length = obj.length
-		for (let i = 0; i < length; i++) arr.push(deepCopy(obj[i]))
-		return arr as unknown as T
-	} else if (typeof obj === 'object') {
-		const keys = Object.keys(obj!)
-		const length = keys.length
-		const newObject: any = {}
-		for (let i = 0; i < length; i++) {
-			const key = keys[i]
-			newObject[key] = deepCopy((obj as any)[key])
-		}
-		return newObject
-	}
-	return obj
 }
 
 /**
@@ -134,6 +102,33 @@ export function mapObjectMapValues<Key extends string, ValueBefore, ValueAfter>(
 	for (const [key, value] of objectMapEntries(object)) {
 		const newValue = mapper(key, value)
 		result[key] = newValue
+	}
+	return result
+}
+
+/** @internal */
+export function areObjectsShallowEqual<T extends object>(obj1: T, obj2: T): boolean {
+	if (obj1 === obj2) return true
+	const keys1 = new Set(Object.keys(obj1))
+	const keys2 = new Set(Object.keys(obj2))
+	if (keys1.size !== keys2.size) return false
+	for (const key of keys1) {
+		if (!keys2.has(key)) return false
+		if (!Object.is((obj1 as any)[key], (obj2 as any)[key])) return false
+	}
+	return true
+}
+
+/** @internal */
+export function groupBy<K extends string, V>(
+	array: ReadonlyArray<V>,
+	keySelector: (value: V) => K
+): Record<K, V[]> {
+	const result: Record<K, V[]> = {} as any
+	for (const value of array) {
+		const key = keySelector(value)
+		if (!result[key]) result[key] = []
+		result[key].push(value)
 	}
 	return result
 }

@@ -1,4 +1,4 @@
-import { Vec2d, createShapeId } from '@tldraw/editor'
+import { Vec, createShapeId } from '@tldraw/editor'
 import { TestEditor } from './TestEditor'
 
 let editor: TestEditor
@@ -119,10 +119,10 @@ describe('When rotating...', () => {
 		editor.select(ids.box1)
 
 		const shapeA = editor.getShape(ids.box1)!
-		const box = editor.selectionPageBounds!
+		const box = editor.getSelectionPageBounds()!
 		const center = box.center.clone().toFixed()
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
 
 		editor
 			.pointerDown(box.midX, box.minY, {
@@ -132,19 +132,19 @@ describe('When rotating...', () => {
 			.pointerMove(box.maxX, box.midY)
 			.expectShapeToMatch({ id: ids.box1, rotation: Math.PI * 0.5 })
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
 
 		editor
 			.pointerMove(box.midY, box.maxY)
 			.expectShapeToMatch({ id: ids.box1, rotation: Math.PI * 1.0 })
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
 
 		editor
 			.pointerMove(box.minX, box.midY)
 			.expectShapeToMatch({ id: ids.box1, rotation: Math.PI * 1.5 })
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(center)
 
 		// Preserves the selection bounds same center
 		expect(center).toMatchObject(box.center)
@@ -159,7 +159,7 @@ describe('When rotating...', () => {
 
 		editor.select(ids.box1, ids.box2)
 
-		const box = editor.selectionPageBounds!
+		const box = editor.getSelectionPageBounds()!
 		const center = box.center.clone()
 
 		editor.pointerDown(box.midX, box.minY, {
@@ -167,19 +167,19 @@ describe('When rotating...', () => {
 			handle: 'top_left_rotate',
 		})
 
-		const next = Vec2d.RotWith(new Vec2d(box.midX, box.minY), center, Math.PI * 0.5)
+		const next = Vec.RotWith(new Vec(box.midX, box.minY), center, Math.PI * 0.5)
 
 		editor
 			.pointerMove(next.x, next.y)
 			.expectShapeToMatch({ id: ids.box1, rotation: Math.PI * 0.5 })
 			.expectShapeToMatch({ id: ids.box2, rotation: Math.PI * 0.5 })
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
-			Vec2d.RotWith(centerA, center, Math.PI * 0.5).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
+			Vec.RotWith(centerA, center, Math.PI * 0.5).toFixed()
 		)
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
-			Vec2d.RotWith(centerB, center, Math.PI * 0.5).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
+			Vec.RotWith(centerB, center, Math.PI * 0.5).toFixed()
 		)
 
 		editor
@@ -189,11 +189,11 @@ describe('When rotating...', () => {
 				{ id: ids.box2, rotation: Math.PI * 1.0 }
 			)
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
-			Vec2d.RotWith(centerA, center, Math.PI).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
+			Vec.RotWith(centerA, center, Math.PI).toFixed()
 		)
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
-			Vec2d.RotWith(centerB, center, Math.PI).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
+			Vec.RotWith(centerB, center, Math.PI).toFixed()
 		)
 
 		editor
@@ -203,11 +203,11 @@ describe('When rotating...', () => {
 				{ id: ids.box2, rotation: Math.PI * 1.5 }
 			)
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
-			Vec2d.RotWith(centerA, center, Math.PI * 1.5).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(
+			Vec.RotWith(centerA, center, Math.PI * 1.5).toFixed()
 		)
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
-			Vec2d.RotWith(centerB, center, Math.PI * 1.5).toFixed()
+		expect(Vec.ToFixed(editor.getPageCenter(shapeB)!)).toMatchObject(
+			Vec.RotWith(centerB, center, Math.PI * 1.5).toFixed()
 		)
 
 		// Preserves the selection bounds same center
@@ -219,7 +219,7 @@ describe('When rotating...', () => {
 	it('restores initial points / rotation when cancelled', () => {
 		editor.select(ids.box1, ids.box2)
 
-		const box = editor.selectionPageBounds!
+		const box = editor.getSelectionPageBounds()!
 		const center = box.center.clone()
 
 		const shapeA = editor.getShape(ids.box1)!
@@ -237,7 +237,7 @@ describe('When rotating...', () => {
 				{ id: ids.box2, x: 200, y: 200, rotation: 0 }
 			)
 
-		expect(Vec2d.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(centerA.toFixed())
+		expect(Vec.ToFixed(editor.getPageCenter(shapeA)!)).toMatchObject(centerA.toFixed())
 
 		// Preserves the selection bounds same center
 		expect(center).toMatchObject(box.center)
@@ -246,7 +246,7 @@ describe('When rotating...', () => {
 	it('uses the same selection box center when rotating multiple times', () => {
 		editor.select(ids.box1, ids.box2)
 
-		const centerBefore = editor.selectionPageBounds!.center.clone()
+		const centerBefore = editor.getSelectionPageBounds()!.center.clone()
 
 		editor
 			.pointerDown(0, 0, {
@@ -256,7 +256,7 @@ describe('When rotating...', () => {
 			.pointerMove(50, 100)
 			.pointerUp()
 
-		const centerBetween = editor.selectionPageBounds!.center.clone()
+		const centerBetween = editor.getSelectionPageBounds()!.center.clone()
 
 		expect(centerBefore.toFixed().toJson()).toMatchObject(centerBetween.toFixed().toJson())
 
@@ -268,7 +268,7 @@ describe('When rotating...', () => {
 			.pointerMove(0, 0)
 			.pointerUp()
 
-		const centerAfter = editor.selectionPageBounds!.center.clone()
+		const centerAfter = editor.getSelectionPageBounds()!.center.clone()
 
 		expect(centerBefore.toFixed().toJson()).toMatchObject(centerAfter.toFixed().toJson())
 	})
@@ -304,18 +304,42 @@ describe('When rotating...', () => {
 
 describe('Rotation math', () => {
 	it('rotates one point around another', () => {
-		const a = new Vec2d(100, 100)
-		const b = new Vec2d(200, 200)
+		const a = new Vec(100, 100)
+		const b = new Vec(200, 200)
 		expect(
-			Vec2d.RotWith(a, b, Math.PI / 2)
+			Vec.RotWith(a, b, Math.PI / 2)
 				.toFixed()
 				.toJson()
 		).toMatchObject({ x: 300, y: 100 })
-		expect(Vec2d.RotWith(a, b, Math.PI).toFixed().toJson()).toMatchObject({ x: 300, y: 300 })
+		expect(Vec.RotWith(a, b, Math.PI).toFixed().toJson()).toMatchObject({ x: 300, y: 300 })
 		expect(
-			Vec2d.RotWith(a, b, Math.PI * 1.5)
+			Vec.RotWith(a, b, Math.PI * 1.5)
 				.toFixed()
 				.toJson()
 		).toMatchObject({ x: 100, y: 300 })
+	})
+})
+
+describe('Edge cases', () => {
+	it('does not enter the pointing_rotate_handle state when pointing a rotate corner of an image while holding command / control', () => {
+		const id = createShapeId()
+		editor
+			.createShape({
+				id,
+				type: 'image',
+			})
+			.select(id)
+			.pointerDown(
+				60,
+				10,
+				{
+					target: 'selection',
+					handle: 'top_right_rotate',
+				},
+				{ ctrlKey: true }
+			)
+			.expectToBeIn('select.brushing')
+			.pointerUp()
+			.expectToBeIn('select.idle')
 	})
 })

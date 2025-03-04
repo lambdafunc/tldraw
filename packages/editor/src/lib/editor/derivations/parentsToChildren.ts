@@ -1,16 +1,17 @@
 import { computed, isUninitialized, RESET_VALUE } from '@tldraw/state'
 import { RecordsDiff } from '@tldraw/store'
 import { isShape, TLParentId, TLRecord, TLShape, TLShapeId, TLStore } from '@tldraw/tlschema'
-import { sortByIndex } from '../../utils/reordering/reordering'
+import { compact, sortByIndex } from '@tldraw/utils'
 
 type Parents2Children = Record<TLParentId, TLShapeId[]>
 
 export const parentsToChildren = (store: TLStore) => {
 	const shapeIdsQuery = store.query.ids<'shape'>('shape')
+	const shapeHistory = store.query.filterHistory('shape')
 
 	function fromScratch() {
 		const result: Parents2Children = {}
-		const shapeIds = shapeIdsQuery.value
+		const shapeIds = shapeIdsQuery.get()
 		const shapes = Array(shapeIds.size) as TLShape[]
 		shapeIds.forEach((id) => shapes.push(store.get(id)!))
 
@@ -35,7 +36,7 @@ export const parentsToChildren = (store: TLStore) => {
 				return fromScratch()
 			}
 
-			const diff = store.history.getDiffSince(lastComputedEpoch)
+			const diff = shapeHistory.getDiffSince(lastComputedEpoch)
 
 			if (diff === RESET_VALUE) {
 				return fromScratch()
@@ -102,7 +103,8 @@ export const parentsToChildren = (store: TLStore) => {
 
 			// Sort the arrays that have been marked for sorting
 			for (const arr of toSort) {
-				const shapesInArr = arr.map((id) => store.get(id)!)
+				// It's possible that some of the shapes may be deleted. But in which case would this be so?
+				const shapesInArr = compact(arr.map((id) => store.get(id)))
 				shapesInArr.sort(sortByIndex)
 				arr.splice(0, arr.length, ...shapesInArr.map((shape) => shape.id))
 			}

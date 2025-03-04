@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react'
+import { RIGHT_MOUSE_BUTTON } from '../constants'
 import {
 	preventDefault,
 	releasePointerCapture,
@@ -17,11 +18,9 @@ export function useCanvasEvents() {
 			let lastX: number, lastY: number
 
 			function onPointerDown(e: React.PointerEvent) {
-				stopEventPropagation(e)
-
 				if ((e as any).isKilled) return
 
-				if (e.button === 2) {
+				if (e.button === RIGHT_MOUSE_BUTTON) {
 					editor.dispatch({
 						type: 'pointer',
 						target: 'canvas',
@@ -76,31 +75,37 @@ export function useCanvasEvents() {
 
 			function onPointerEnter(e: React.PointerEvent) {
 				if ((e as any).isKilled) return
-				if (editor.instanceState.isPenMode && e.pointerType !== 'pen') return
+				if (editor.getInstanceState().isPenMode && e.pointerType !== 'pen') return
 				const canHover = e.pointerType === 'mouse' || e.pointerType === 'pen'
 				editor.updateInstanceState({ isHoveringCanvas: canHover ? true : null })
 			}
 
 			function onPointerLeave(e: React.PointerEvent) {
 				if ((e as any).isKilled) return
-				if (editor.instanceState.isPenMode && e.pointerType !== 'pen') return
+				if (editor.getInstanceState().isPenMode && e.pointerType !== 'pen') return
 				const canHover = e.pointerType === 'mouse' || e.pointerType === 'pen'
 				editor.updateInstanceState({ isHoveringCanvas: canHover ? false : null })
 			}
 
 			function onTouchStart(e: React.TouchEvent) {
 				;(e as any).isKilled = true
-				// todo: investigate whether this effects keyboard shortcuts
-				// god damn it, but necessary for long presses to open the context menu
-				document.body.click()
 				preventDefault(e)
 			}
 
 			function onTouchEnd(e: React.TouchEvent) {
 				;(e as any).isKilled = true
+				// check that e.target is an HTMLElement
+				if (!(e.target instanceof HTMLElement)) return
+
 				if (
-					(e.target as HTMLElement).tagName !== 'A' &&
-					(e.target as HTMLElement).tagName !== 'TEXTAREA'
+					e.target.tagName !== 'A' &&
+					e.target.tagName !== 'TEXTAREA' &&
+					e.target.isContentEditable &&
+					// When in EditingShape state, we are actually clicking on a 'DIV'
+					// not A/TEXTAREA/contenteditable element yet. So, to preserve cursor position
+					// for edit mode on mobile we need to not preventDefault.
+					// TODO: Find out if we still need this preventDefault in general though.
+					!(editor.getEditingShape() && e.target.className.includes('tl-text-content'))
 				) {
 					preventDefault(e)
 				}
@@ -112,16 +117,29 @@ export function useCanvasEvents() {
 
 			async function onDrop(e: React.DragEvent<Element>) {
 				preventDefault(e)
-				if (!e.dataTransfer?.files?.length) return
+				stopEventPropagation(e)
 
-				const files = Array.from(e.dataTransfer.files)
+				if (e.dataTransfer?.files?.length) {
+					const files = Array.from(e.dataTransfer.files)
 
-				await editor.putExternalContent({
-					type: 'files',
-					files,
-					point: editor.screenToPage({ x: e.clientX, y: e.clientY }),
-					ignoreParent: false,
-				})
+					await editor.putExternalContent({
+						type: 'files',
+						files,
+						point: editor.screenToPage({ x: e.clientX, y: e.clientY }),
+						ignoreParent: false,
+					})
+					return
+				}
+
+				const url = e.dataTransfer.getData('url')
+				if (url) {
+					await editor.putExternalContent({
+						type: 'url',
+						url,
+						point: editor.screenToPage({ x: e.clientX, y: e.clientY }),
+					})
+					return
+				}
 			}
 
 			function onClick(e: React.MouseEvent) {

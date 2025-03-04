@@ -2,17 +2,19 @@ import { IdOf, UnknownRecord } from './BaseRecord'
 import { intersectSets } from './setUtils'
 import { StoreQueries } from './StoreQueries'
 
-export type ValueMatcher<T> = { eq: T } | { neq: T } | { gt: number }
+/** @public */
+export type QueryValueMatcher<T> = { eq: T } | { neq: T } | { gt: number }
 
+/** @public */
 export type QueryExpression<R extends object> = {
-	[k in keyof R & string]?: ValueMatcher<R[k]>
+	[k in keyof R & string]?: QueryValueMatcher<R[k]>
 	// todo: handle nesting
 	// | (R[k] extends object ? { match: QueryExpression<R[k]> } : never)
 }
 
 export function objectMatchesQuery<T extends object>(query: QueryExpression<T>, object: T) {
 	for (const [key, _matcher] of Object.entries(query)) {
-		const matcher = _matcher as ValueMatcher<T>
+		const matcher = _matcher as QueryValueMatcher<T>
 		const value = object[key as keyof T]
 		// if you add matching logic here, make sure you also update executeQuery,
 		// where initial data is pulled out of the indexes, since that requires different
@@ -34,7 +36,7 @@ export function executeQuery<R extends UnknownRecord, TypeName extends R['typeNa
 	for (const [k, matcher] of Object.entries(query)) {
 		if ('eq' in matcher) {
 			const index = store.index(typeName, k as any)
-			const ids = index.value.get(matcher.eq)
+			const ids = index.get().get(matcher.eq)
 			if (ids) {
 				for (const id of ids) {
 					matchIds[k].add(id)
@@ -42,7 +44,7 @@ export function executeQuery<R extends UnknownRecord, TypeName extends R['typeNa
 			}
 		} else if ('neq' in matcher) {
 			const index = store.index(typeName, k as any)
-			for (const [value, ids] of index.value) {
+			for (const [value, ids] of index.get()) {
 				if (value !== matcher.neq) {
 					for (const id of ids) {
 						matchIds[k].add(id)
@@ -51,7 +53,7 @@ export function executeQuery<R extends UnknownRecord, TypeName extends R['typeNa
 			}
 		} else if ('gt' in matcher) {
 			const index = store.index(typeName, k as any)
-			for (const [value, ids] of index.value) {
+			for (const [value, ids] of index.get()) {
 				if (value > matcher.gt) {
 					for (const id of ids) {
 						matchIds[k].add(id)

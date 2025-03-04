@@ -1,10 +1,11 @@
 import {
-	Box2d,
+	Box,
 	RotateCorner,
 	TLEmbedShape,
-	TLSelectionForegroundComponent,
+	TLSelectionForegroundProps,
 	TLTextShape,
 	getCursor,
+	tlenv,
 	toDomPrecision,
 	track,
 	useEditor,
@@ -15,192 +16,185 @@ import {
 import classNames from 'classnames'
 import { useRef } from 'react'
 import { useReadonly } from '../ui/hooks/useReadonly'
-import { CropHandles } from './CropHandles'
+import { TldrawCropHandles } from './TldrawCropHandles'
 
-const IS_FIREFOX =
-	typeof navigator !== 'undefined' &&
-	navigator.userAgent &&
-	navigator.userAgent.toLowerCase().indexOf('firefox') > -1
+/** @public */
+export const TldrawSelectionForeground = track(function TldrawSelectionForeground({
+	bounds,
+	rotation,
+}: TLSelectionForegroundProps) {
+	const editor = useEditor()
+	const rSvg = useRef<SVGSVGElement>(null)
 
-export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
-	function TldrawSelectionForeground({ bounds, rotation }: { bounds: Box2d; rotation: number }) {
-		const editor = useEditor()
-		const rSvg = useRef<SVGSVGElement>(null)
+	const isReadonlyMode = useReadonly()
+	const topEvents = useSelectionEvents('top')
+	const rightEvents = useSelectionEvents('right')
+	const bottomEvents = useSelectionEvents('bottom')
+	const leftEvents = useSelectionEvents('left')
+	const topLeftEvents = useSelectionEvents('top_left')
+	const topRightEvents = useSelectionEvents('top_right')
+	const bottomRightEvents = useSelectionEvents('bottom_right')
+	const bottomLeftEvents = useSelectionEvents('bottom_left')
 
-		const isReadonlyMode = useReadonly()
-		const topEvents = useSelectionEvents('top')
-		const rightEvents = useSelectionEvents('right')
-		const bottomEvents = useSelectionEvents('bottom')
-		const leftEvents = useSelectionEvents('left')
-		const topLeftEvents = useSelectionEvents('top_left')
-		const topRightEvents = useSelectionEvents('top_right')
-		const bottomRightEvents = useSelectionEvents('bottom_right')
-		const bottomLeftEvents = useSelectionEvents('bottom_left')
+	const isDefaultCursor = editor.getInstanceState().cursor.type === 'default'
+	const isCoarsePointer = editor.getInstanceState().isCoarsePointer
 
-		const isDefaultCursor = !editor.isMenuOpen && editor.instanceState.cursor.type === 'default'
-		const isCoarsePointer = editor.instanceState.isCoarsePointer
+	const onlyShape = editor.getOnlySelectedShape()
+	const isLockedShape = onlyShape && editor.isShapeOrAncestorLocked(onlyShape)
 
-		const shapes = editor.selectedShapes
-		const onlyShape = editor.onlySelectedShape
-		const isLockedShape = onlyShape && editor.isShapeOrAncestorLocked(onlyShape)
+	// if all shapes have an expandBy for the selection outline, we can expand by the l
+	const expandOutlineBy = onlyShape
+		? editor.getShapeUtil(onlyShape).expandSelectionOutlinePx(onlyShape)
+		: 0
 
-		// if all shapes have an expandBy for the selection outline, we can expand by the l
-		const expandOutlineBy = onlyShape
-			? editor.getShapeUtil(onlyShape).expandSelectionOutlinePx(onlyShape)
-			: 0
+	const expandedBounds =
+		expandOutlineBy instanceof Box
+			? bounds.clone().expand(expandOutlineBy).zeroFix()
+			: bounds.clone().expandBy(expandOutlineBy).zeroFix()
 
-		useTransform(rSvg, bounds?.x, bounds?.y, 1, editor.selectionRotation, {
-			x: -expandOutlineBy,
-			y: -expandOutlineBy,
-		})
+	useTransform(rSvg, bounds?.x, bounds?.y, 1, editor.getSelectionRotation(), {
+		x: expandedBounds.x - bounds.x,
+		y: expandedBounds.y - bounds.y,
+	})
 
-		if (!bounds) return null
-		bounds = bounds.clone().expandBy(expandOutlineBy).zeroFix()
+	if (onlyShape && editor.isShapeHidden(onlyShape)) return null
 
-		const zoom = editor.zoomLevel
-		const isChangingStyle = editor.instanceState.isChangingStyle
+	const zoom = editor.getZoomLevel()
+	const isChangingStyle = editor.getInstanceState().isChangingStyle
 
-		const width = bounds.width
-		const height = bounds.height
+	const width = expandedBounds.width
+	const height = expandedBounds.height
 
-		const size = 8 / zoom
-		const isTinyX = width < size * 2
-		const isTinyY = height < size * 2
+	const size = 8 / zoom
+	const isTinyX = width < size * 2
+	const isTinyY = height < size * 2
 
-		const isSmallX = width < size * 4
-		const isSmallY = height < size * 4
-		const isSmallCropX = width < size * 5
-		const isSmallCropY = height < size * 5
+	const isSmallX = width < size * 4
+	const isSmallY = height < size * 4
+	const isSmallCropX = width < size * 5
+	const isSmallCropY = height < size * 5
 
-		const mobileHandleMultiplier = isCoarsePointer ? 1.75 : 1
-		const targetSize = (6 / zoom) * mobileHandleMultiplier
+	const mobileHandleMultiplier = isCoarsePointer ? 1.75 : 1
+	const targetSize = (6 / zoom) * mobileHandleMultiplier
 
-		const targetSizeX = (isSmallX ? targetSize / 2 : targetSize) * (mobileHandleMultiplier * 0.75)
-		const targetSizeY = (isSmallY ? targetSize / 2 : targetSize) * (mobileHandleMultiplier * 0.75)
+	const targetSizeX = (isSmallX ? targetSize / 2 : targetSize) * (mobileHandleMultiplier * 0.75)
+	const targetSizeY = (isSmallY ? targetSize / 2 : targetSize) * (mobileHandleMultiplier * 0.75)
 
-		const showSelectionBounds =
-			(onlyShape ? !editor.getShapeUtil(onlyShape).hideSelectionBoundsFg(onlyShape) : true) &&
-			!isChangingStyle
+	const showSelectionBounds =
+		(onlyShape ? !editor.getShapeUtil(onlyShape).hideSelectionBoundsFg(onlyShape) : true) &&
+		!isChangingStyle
 
-		let shouldDisplayBox =
-			(showSelectionBounds &&
-				editor.isInAny(
-					'select.idle',
-					'select.brushing',
-					'select.scribble_brushing',
-					'select.pointing_canvas',
-					'select.pointing_selection',
-					'select.pointing_shape',
-					'select.crop.idle',
-					'select.crop.pointing_crop',
-					'select.pointing_resize_handle',
-					'select.pointing_crop_handle'
-				)) ||
-			(showSelectionBounds &&
-				editor.isIn('select.resizing') &&
-				onlyShape &&
-				editor.isShapeOfType<TLTextShape>(onlyShape, 'text'))
-
-		if (onlyShape && shouldDisplayBox) {
-			if (IS_FIREFOX && editor.isShapeOfType<TLEmbedShape>(onlyShape, 'embed')) {
-				shouldDisplayBox = false
-			}
-		}
-
-		const showCropHandles =
-			editor.isInAny(
-				'select.pointing_crop_handle',
-				'select.crop.idle',
-				'select.crop.pointing_crop'
-			) &&
-			!isChangingStyle &&
-			!isReadonlyMode
-
-		const shouldDisplayControls =
+	let shouldDisplayBox =
+		(showSelectionBounds &&
 			editor.isInAny(
 				'select.idle',
+				'select.brushing',
+				'select.scribble_brushing',
+				'select.pointing_canvas',
 				'select.pointing_selection',
 				'select.pointing_shape',
-				'select.crop.idle'
-			) &&
-			!isChangingStyle &&
-			!isReadonlyMode
-
-		const showCornerRotateHandles =
-			!isCoarsePointer &&
-			!(isTinyX || isTinyY) &&
-			(shouldDisplayControls || showCropHandles) &&
-			(onlyShape ? !editor.getShapeUtil(onlyShape).hideRotateHandle(onlyShape) : true) &&
-			!isLockedShape
-
-		const showMobileRotateHandle =
-			isCoarsePointer &&
-			(!isSmallX || !isSmallY) &&
-			(shouldDisplayControls || showCropHandles) &&
-			(onlyShape ? !editor.getShapeUtil(onlyShape).hideRotateHandle(onlyShape) : true) &&
-			!isLockedShape
-
-		const showResizeHandles =
-			shouldDisplayControls &&
-			(onlyShape
-				? editor.getShapeUtil(onlyShape).canResize(onlyShape) &&
-				  !editor.getShapeUtil(onlyShape).hideResizeHandles(onlyShape)
-				: true) &&
-			!showCropHandles &&
-			!isLockedShape
-
-		const hideAlternateCornerHandles = isTinyX || isTinyY
-		const showOnlyOneHandle = isTinyX && isTinyY
-		const hideAlternateCropHandles = isSmallCropX || isSmallCropY
-
-		const showHandles = showResizeHandles || showCropHandles
-		const hideRotateCornerHandles = !showCornerRotateHandles
-		const hideMobileRotateHandle = !shouldDisplayControls || !showMobileRotateHandle
-		const hideTopLeftCorner = !shouldDisplayControls || !showHandles
-		const hideTopRightCorner = !shouldDisplayControls || !showHandles || hideAlternateCornerHandles
-		const hideBottomLeftCorner =
-			!shouldDisplayControls || !showHandles || hideAlternateCornerHandles
-		const hideBottomRightCorner =
-			!shouldDisplayControls || !showHandles || (showOnlyOneHandle && !showCropHandles)
-
-		let hideEdgeTargetsDueToCoarsePointer = isCoarsePointer
-
-		if (
-			hideEdgeTargetsDueToCoarsePointer &&
-			shapes.every((shape) => editor.getShapeUtil(shape).isAspectRatioLocked(shape))
-		) {
-			hideEdgeTargetsDueToCoarsePointer = false
-		}
-
-		// If we're showing crop handles, then show the edges too.
-		// If we're showing resize handles, then show the edges only
-		// if we're not hiding them for some other reason
-		let hideEdgeTargets = true
-
-		if (showCropHandles) {
-			hideEdgeTargets = hideAlternateCropHandles
-		} else if (showResizeHandles) {
-			hideEdgeTargets =
-				hideAlternateCornerHandles || showOnlyOneHandle || hideEdgeTargetsDueToCoarsePointer
-		}
-
-		const textHandleHeight = Math.min(24 / zoom, height - targetSizeY * 3)
-		const showTextResizeHandles =
-			shouldDisplayControls &&
-			isCoarsePointer &&
+				'select.crop.idle',
+				'select.crop.pointing_crop',
+				'select.crop.pointing_crop_handle',
+				'select.pointing_resize_handle'
+			)) ||
+		(showSelectionBounds &&
+			editor.isIn('select.resizing') &&
 			onlyShape &&
-			editor.isShapeOfType<TLTextShape>(onlyShape, 'text') &&
-			textHandleHeight * zoom >= 4
+			editor.isShapeOfType<TLTextShape>(onlyShape, 'text'))
 
-		return (
-			<svg
-				ref={rSvg}
-				className="tl-overlays__item tl-selection__fg"
-				data-testid="selection-foreground"
-			>
+	if (onlyShape && shouldDisplayBox) {
+		if (tlenv.isFirefox && editor.isShapeOfType<TLEmbedShape>(onlyShape, 'embed')) {
+			shouldDisplayBox = false
+		}
+	}
+
+	const showCropHandles =
+		editor.isInAny(
+			'select.crop.idle',
+			'select.crop.pointing_crop',
+			'select.crop.pointing_crop_handle'
+		) &&
+		!isChangingStyle &&
+		!isReadonlyMode
+
+	const shouldDisplayControls =
+		editor.isInAny(
+			'select.idle',
+			'select.pointing_selection',
+			'select.pointing_shape',
+			'select.crop.idle'
+		) &&
+		!isChangingStyle &&
+		!isReadonlyMode
+
+	const showCornerRotateHandles =
+		!isCoarsePointer &&
+		!(isTinyX || isTinyY) &&
+		(shouldDisplayControls || showCropHandles) &&
+		(onlyShape ? !editor.getShapeUtil(onlyShape).hideRotateHandle(onlyShape) : true) &&
+		!isLockedShape
+
+	const showMobileRotateHandle =
+		isCoarsePointer &&
+		(!isSmallX || !isSmallY) &&
+		(shouldDisplayControls || showCropHandles) &&
+		(onlyShape ? !editor.getShapeUtil(onlyShape).hideRotateHandle(onlyShape) : true) &&
+		!isLockedShape
+
+	const showResizeHandles =
+		shouldDisplayControls &&
+		(onlyShape
+			? editor.getShapeUtil(onlyShape).canResize(onlyShape) &&
+				!editor.getShapeUtil(onlyShape).hideResizeHandles(onlyShape)
+			: true) &&
+		!showCropHandles &&
+		!isLockedShape
+
+	const hideAlternateCornerHandles = isTinyX || isTinyY
+	const showOnlyOneHandle = isTinyX && isTinyY
+	const hideAlternateCropHandles = isSmallCropX || isSmallCropY
+
+	const showHandles = showResizeHandles || showCropHandles
+	const hideRotateCornerHandles = !showCornerRotateHandles
+	const hideMobileRotateHandle = !shouldDisplayControls || !showMobileRotateHandle
+	const hideTopLeftCorner = !shouldDisplayControls || !showHandles
+	const hideTopRightCorner = !shouldDisplayControls || !showHandles || hideAlternateCornerHandles
+	const hideBottomLeftCorner = !shouldDisplayControls || !showHandles || hideAlternateCornerHandles
+	const hideBottomRightCorner =
+		!shouldDisplayControls || !showHandles || (showOnlyOneHandle && !showCropHandles)
+
+	// If we're showing crop handles, then show the edges too.
+	// If we're showing resize handles, then show the edges only
+	// if we're not hiding them for some other reason.
+	let hideVerticalEdgeTargets = true
+	// The same logic above applies here, except another nuance is that
+	// we enable resizing for text on mobile (coarse).
+	let hideHorizontalEdgeTargets = true
+
+	if (showCropHandles) {
+		hideVerticalEdgeTargets = hideAlternateCropHandles
+		hideHorizontalEdgeTargets = hideAlternateCropHandles
+	} else if (showResizeHandles) {
+		hideVerticalEdgeTargets = hideAlternateCornerHandles || showOnlyOneHandle || isCoarsePointer
+		const isMobileAndTextShape = isCoarsePointer && onlyShape && onlyShape.type === 'text'
+		hideHorizontalEdgeTargets = hideVerticalEdgeTargets && !isMobileAndTextShape
+	}
+
+	const textHandleHeight = Math.min(24 / zoom, height - targetSizeY * 3)
+	const showTextResizeHandles =
+		shouldDisplayControls &&
+		isCoarsePointer &&
+		onlyShape &&
+		editor.isShapeOfType<TLTextShape>(onlyShape, 'text') &&
+		textHandleHeight * zoom >= 4
+
+	return (
+		<svg className="tl-overlays__item tl-selection__fg" data-testid="selection-foreground">
+			<g ref={rSvg}>
 				{shouldDisplayBox && (
 					<rect
-						className={classNames('tl-selection__fg__outline')}
+						className="tl-selection__fg__outline"
 						width={toDomPrecision(width)}
 						height={toDomPrecision(height)}
 					/>
@@ -251,7 +245,7 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 				{/* Targets */}
 				<rect
 					className={classNames('tl-transparent', {
-						'tl-hidden': hideEdgeTargets,
+						'tl-hidden': hideVerticalEdgeTargets,
 					})}
 					data-testid="selection.resize.top"
 					aria-label="top target"
@@ -265,7 +259,7 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 				/>
 				<rect
 					className={classNames('tl-transparent', {
-						'tl-hidden': hideEdgeTargets,
+						'tl-hidden': hideHorizontalEdgeTargets,
 					})}
 					data-testid="selection.resize.right"
 					aria-label="right target"
@@ -279,7 +273,7 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 				/>
 				<rect
 					className={classNames('tl-transparent', {
-						'tl-hidden': hideEdgeTargets,
+						'tl-hidden': hideVerticalEdgeTargets,
 					})}
 					data-testid="selection.resize.bottom"
 					aria-label="bottom target"
@@ -293,7 +287,7 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 				/>
 				<rect
 					className={classNames('tl-transparent', {
-						'tl-hidden': hideEdgeTargets,
+						'tl-hidden': hideHorizontalEdgeTargets,
 					})}
 					data-testid="selection.resize.left"
 					aria-label="left target"
@@ -437,7 +431,7 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 				)}
 				{/* Crop Handles */}
 				{showCropHandles && (
-					<CropHandles
+					<TldrawCropHandles
 						{...{
 							size,
 							width,
@@ -446,10 +440,10 @@ export const TldrawSelectionForeground: TLSelectionForegroundComponent = track(
 						}}
 					/>
 				)}
-			</svg>
-		)
-	}
-)
+			</g>
+		</svg>
+	)
+})
 
 export const RotateCornerHandle = function RotateCornerHandle({
 	cx,
@@ -503,7 +497,7 @@ export const MobileRotateHandle = function RotateHandle({
 	const events = useSelectionEvents('mobile_rotate')
 
 	const editor = useEditor()
-	const zoom = useValue('zoom level', () => editor.zoomLevel, [editor])
+	const zoom = useValue('zoom level', () => editor.getZoomLevel(), [editor])
 	const bgRadius = Math.max(14 * (1 / zoom), 20 / Math.max(1, zoom))
 
 	return (
