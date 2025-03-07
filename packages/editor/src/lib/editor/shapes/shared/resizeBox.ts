@@ -1,39 +1,39 @@
-import { Vec2dModel } from '@tldraw/tlschema'
-import { Box2d } from '../../../primitives/Box2d'
-import { Vec2d } from '../../../primitives/Vec2d'
+import { VecModel } from '@tldraw/tlschema'
+import { Box } from '../../../primitives/Box'
+import { Vec } from '../../../primitives/Vec'
 import { TLResizeHandle } from '../../types/selection-types'
 import { TLBaseBoxShape } from '../BaseBoxShapeUtil'
 import { TLResizeMode } from '../ShapeUtil'
 
 /** @public */
-export type ResizeBoxOptions = Partial<{
-	minWidth: number
-	maxWidth: number
-	minHeight: number
-	maxHeight: number
-}>
+export interface ResizeBoxOptions {
+	minWidth?: number
+	maxWidth?: number
+	minHeight?: number
+	maxHeight?: number
+}
 
 /** @public */
-export function resizeBox(
-	shape: TLBaseBoxShape,
+export function resizeBox<T extends TLBaseBoxShape>(
+	shape: T,
 	info: {
-		newPoint: Vec2dModel
+		newPoint: VecModel
 		handle: TLResizeHandle
 		mode: TLResizeMode
 		scaleX: number
 		scaleY: number
-		initialBounds: Box2d
-		initialShape: TLBaseBoxShape
+		initialBounds: Box
+		initialShape: T
 	},
 	opts = {} as ResizeBoxOptions
-) {
+): T {
 	const { newPoint, handle, scaleX, scaleY } = info
 	const { minWidth = 1, maxWidth = Infinity, minHeight = 1, maxHeight = Infinity } = opts
 
 	let w = shape.props.w * scaleX
 	let h = shape.props.h * scaleY
 
-	const offset = new Vec2d(0, 0)
+	const offset = new Vec(0, 0)
 
 	if (w > 0) {
 		if (w < minWidth) {
@@ -118,6 +118,7 @@ export function resizeBox(
 	const { x, y } = offset.rot(shape.rotation).add(newPoint)
 
 	return {
+		...shape,
 		x,
 		y,
 		props: {

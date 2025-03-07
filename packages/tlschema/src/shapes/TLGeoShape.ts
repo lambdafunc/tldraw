@@ -1,17 +1,26 @@
-import { defineMigrations } from '@tldraw/store'
 import { T } from '@tldraw/validate'
+import { TLRichText, richTextValidator, toRichText } from '../misc/TLRichText'
+import { createShapePropsMigrationIds, createShapePropsMigrationSequence } from '../records/TLShape'
+import { RecordProps } from '../recordsWithProps'
 import { StyleProp } from '../styles/StyleProp'
-import { DefaultColorStyle, DefaultLabelColorStyle } from '../styles/TLColorStyle'
-import { DefaultDashStyle } from '../styles/TLDashStyle'
-import { DefaultFillStyle } from '../styles/TLFillStyle'
-import { DefaultFontStyle } from '../styles/TLFontStyle'
+import {
+	DefaultColorStyle,
+	DefaultLabelColorStyle,
+	TLDefaultColorStyle,
+} from '../styles/TLColorStyle'
+import { DefaultDashStyle, TLDefaultDashStyle } from '../styles/TLDashStyle'
+import { DefaultFillStyle, TLDefaultFillStyle } from '../styles/TLFillStyle'
+import { DefaultFontStyle, TLDefaultFontStyle } from '../styles/TLFontStyle'
 import {
 	DefaultHorizontalAlignStyle,
 	TLDefaultHorizontalAlignStyle,
 } from '../styles/TLHorizontalAlignStyle'
-import { DefaultSizeStyle } from '../styles/TLSizeStyle'
-import { DefaultVerticalAlignStyle } from '../styles/TLVerticalAlignStyle'
-import { ShapePropsType, TLBaseShape } from './TLBaseShape'
+import { DefaultSizeStyle, TLDefaultSizeStyle } from '../styles/TLSizeStyle'
+import {
+	DefaultVerticalAlignStyle,
+	TLDefaultVerticalAlignStyle,
+} from '../styles/TLVerticalAlignStyle'
+import { TLBaseShape } from './TLBaseShape'
 
 /** @public */
 export const GeoShapeGeoStyle = StyleProp.defineEnum('tldraw:geo', {
@@ -36,6 +45,7 @@ export const GeoShapeGeoStyle = StyleProp.defineEnum('tldraw:geo', {
 		'arrow-down',
 		'x-box',
 		'check-box',
+		'heart',
 	],
 })
 
@@ -43,7 +53,29 @@ export const GeoShapeGeoStyle = StyleProp.defineEnum('tldraw:geo', {
 export type TLGeoShapeGeoStyle = T.TypeOf<typeof GeoShapeGeoStyle>
 
 /** @public */
-export const geoShapeProps = {
+export interface TLGeoShapeProps {
+	geo: TLGeoShapeGeoStyle
+	labelColor: TLDefaultColorStyle
+	color: TLDefaultColorStyle
+	fill: TLDefaultFillStyle
+	dash: TLDefaultDashStyle
+	size: TLDefaultSizeStyle
+	font: TLDefaultFontStyle
+	align: TLDefaultHorizontalAlignStyle
+	verticalAlign: TLDefaultVerticalAlignStyle
+	url: string
+	w: number
+	h: number
+	growY: number
+	richText: TLRichText
+	scale: number
+}
+
+/** @public */
+export type TLGeoShape = TLBaseShape<'geo', TLGeoShapeProps>
+
+/** @public */
+export const geoShapeProps: RecordProps<TLGeoShape> = {
 	geo: GeoShapeGeoStyle,
 	labelColor: DefaultLabelColorStyle,
 	color: DefaultColorStyle,
@@ -53,20 +85,15 @@ export const geoShapeProps = {
 	font: DefaultFontStyle,
 	align: DefaultHorizontalAlignStyle,
 	verticalAlign: DefaultVerticalAlignStyle,
-	url: T.string,
+	url: T.linkUrl,
 	w: T.nonZeroNumber,
 	h: T.nonZeroNumber,
 	growY: T.positiveNumber,
-	text: T.string,
+	richText: richTextValidator,
+	scale: T.nonZeroNumber,
 }
 
-/** @public */
-export type TLGeoShapeProps = ShapePropsType<typeof geoShapeProps>
-
-/** @public */
-export type TLGeoShape = TLBaseShape<'geo', TLGeoShapeProps>
-
-const Versions = {
+const geoShapeVersions = createShapePropsMigrationIds('geo', {
 	AddUrlProp: 1,
 	AddLabelColor: 2,
 	RemoveJustify: 3,
@@ -74,96 +101,58 @@ const Versions = {
 	AddVerticalAlign: 5,
 	MigrateLegacyAlign: 6,
 	AddCloud: 7,
-} as const
+	MakeUrlsValid: 8,
+	AddScale: 9,
+	AddRichText: 10,
+})
 
-export { Versions as GeoShapeVersions }
+export { geoShapeVersions as geoShapeVersions }
 
-/** @internal */
-export const geoShapeMigrations = defineMigrations({
-	currentVersion: Versions.AddCloud,
-	migrators: {
-		[Versions.AddUrlProp]: {
-			up: (shape) => {
-				return { ...shape, props: { ...shape.props, url: '' } }
+/** @public */
+export const geoShapeMigrations = createShapePropsMigrationSequence({
+	sequence: [
+		{
+			id: geoShapeVersions.AddUrlProp,
+			up: (props) => {
+				props.url = ''
 			},
-			down: (shape) => {
-				const { url: _, ...props } = shape.props
-				return { ...shape, props }
-			},
+			down: 'retired',
 		},
-		[Versions.AddLabelColor]: {
-			up: (record) => {
-				return {
-					...record,
-					props: {
-						...record.props,
-						labelColor: 'black',
-					},
-				}
+		{
+			id: geoShapeVersions.AddLabelColor,
+			up: (props) => {
+				props.labelColor = 'black'
 			},
-			down: (record) => {
-				const { labelColor: _, ...props } = record.props
-				return {
-					...record,
-					props,
-				}
-			},
+			down: 'retired',
 		},
-		[Versions.RemoveJustify]: {
-			up: (shape) => {
-				let newAlign = shape.props.align
-				if (newAlign === 'justify') {
-					newAlign = 'start'
-				}
-
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						align: newAlign,
-					},
+		{
+			id: geoShapeVersions.RemoveJustify,
+			up: (props) => {
+				if (props.align === 'justify') {
+					props.align = 'start'
 				}
 			},
-			down: (shape) => {
-				return { ...shape }
-			},
+			down: 'retired',
 		},
-		[Versions.AddCheckBox]: {
-			up: (shape) => {
-				return { ...shape }
+		{
+			id: geoShapeVersions.AddCheckBox,
+			up: (_props) => {
+				// noop
 			},
-			down: (shape) => {
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						geo: shape.props.geo === 'check-box' ? 'rectangle' : shape.props.geo,
-					},
-				}
-			},
+			down: 'retired',
 		},
-		[Versions.AddVerticalAlign]: {
-			up: (shape) => {
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						verticalAlign: 'middle',
-					},
-				}
+		{
+			id: geoShapeVersions.AddVerticalAlign,
+			up: (props) => {
+				props.verticalAlign = 'middle'
 			},
-			down: (shape) => {
-				const { verticalAlign: _, ...props } = shape.props
-				return {
-					...shape,
-					props,
-				}
-			},
+			down: 'retired',
 		},
-		[Versions.MigrateLegacyAlign]: {
-			up: (shape) => {
+		{
+			id: geoShapeVersions.MigrateLegacyAlign,
+			up: (props) => {
 				let newAlign: TLDefaultHorizontalAlignStyle
-				switch (shape.props.align) {
+				switch (props.align) {
 					case 'start':
 						newAlign = 'start-legacy'
 						break
@@ -174,53 +163,47 @@ export const geoShapeMigrations = defineMigrations({
 						newAlign = 'middle-legacy'
 						break
 				}
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						align: newAlign,
-					},
+				props.align = newAlign
+			},
+			down: 'retired',
+		},
+		{
+			id: geoShapeVersions.AddCloud,
+			up: (_props) => {
+				// noop
+			},
+			down: 'retired',
+		},
+		{
+			id: geoShapeVersions.MakeUrlsValid,
+			up: (props) => {
+				if (!T.linkUrl.isValid(props.url)) {
+					props.url = ''
 				}
 			},
-			down: (shape) => {
-				let oldAlign: TLDefaultHorizontalAlignStyle
-				switch (shape.props.align) {
-					case 'start-legacy':
-						oldAlign = 'start'
-						break
-					case 'end-legacy':
-						oldAlign = 'end'
-						break
-					case 'middle-legacy':
-						oldAlign = 'middle'
-						break
-					default:
-						oldAlign = shape.props.align
-				}
-				return {
-					...shape,
-					props: {
-						...shape.props,
-						align: oldAlign,
-					},
-				}
+			down: (_props) => {
+				// noop
 			},
 		},
-		[Versions.AddCloud]: {
-			up: (shape) => {
-				return shape
+		{
+			id: geoShapeVersions.AddScale,
+			up: (props) => {
+				props.scale = 1
 			},
-			down: (shape) => {
-				if (shape.props.geo === 'cloud') {
-					return {
-						...shape,
-						props: {
-							...shape.props,
-							geo: 'rectangle',
-						},
-					}
-				}
+			down: (props) => {
+				delete props.scale
 			},
 		},
-	},
+		{
+			id: geoShapeVersions.AddRichText,
+			up: (props) => {
+				props.richText = toRichText(props.text)
+				delete props.text
+			},
+			// N.B. Explicitly no down state so that we force clients to update.
+			// down: (props) => {
+			// 	delete props.richText
+			// },
+		},
+	],
 })

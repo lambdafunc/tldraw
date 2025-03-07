@@ -1,76 +1,94 @@
-import { Trigger } from '@radix-ui/react-dropdown-menu'
-import { SharedStyle, StyleProp } from '@tldraw/editor'
-import classNames from 'classnames'
+import { SharedStyle, StyleProp, useEditor } from '@tldraw/editor'
 import * as React from 'react'
+import { StyleValuesForUi } from '../../../styles'
 import { TLUiTranslationKey } from '../../hooks/useTranslation/TLUiTranslationKey'
 import { useTranslation } from '../../hooks/useTranslation/useTranslation'
 import { TLUiIconType } from '../../icon-types'
-import { Button } from '../primitives/Button'
-import * as DropdownMenu from '../primitives/DropdownMenu'
-import { StyleValuesForUi } from './styles'
+import { TLUiButtonProps, TldrawUiButton } from '../primitives/Button/TldrawUiButton'
+import { TldrawUiButtonIcon } from '../primitives/Button/TldrawUiButtonIcon'
+import { TldrawUiButtonLabel } from '../primitives/Button/TldrawUiButtonLabel'
+import {
+	TldrawUiDropdownMenuContent,
+	TldrawUiDropdownMenuItem,
+	TldrawUiDropdownMenuRoot,
+	TldrawUiDropdownMenuTrigger,
+} from '../primitives/TldrawUiDropdownMenu'
 
 interface DropdownPickerProps<T extends string> {
 	id: string
-	label?: TLUiTranslationKey
+	label?: TLUiTranslationKey | Exclude<string, TLUiTranslationKey>
 	uiType: string
+	stylePanelType: string
 	style: StyleProp<T>
 	value: SharedStyle<T>
 	items: StyleValuesForUi<T>
-	onValueChange: (style: StyleProp<T>, value: T, squashing: boolean) => void
+	type: TLUiButtonProps['type']
+	onValueChange(style: StyleProp<T>, value: T): void
 }
 
-export const DropdownPicker = React.memo(function DropdownPicker<T extends string>({
+function DropdownPickerInner<T extends string>({
 	id,
 	label,
 	uiType,
+	stylePanelType,
 	style,
 	items,
+	type,
 	value,
 	onValueChange,
 }: DropdownPickerProps<T>) {
 	const msg = useTranslation()
+	const editor = useEditor()
 
 	const icon = React.useMemo(
 		() => items.find((item) => value.type === 'shared' && item.value === value.value)?.icon,
 		[items, value]
 	)
 
+	const stylePanelName = msg(`style-panel.${stylePanelType}` as TLUiTranslationKey)
+
+	const titleStr =
+		value.type === 'mixed'
+			? msg('style-panel.mixed')
+			: stylePanelName + ' — ' + msg(`${uiType}-style.${value.value}` as TLUiTranslationKey)
+	const labelStr = label ? msg(label) : ''
+
 	return (
-		<DropdownMenu.Root id={`style panel ${id}`}>
-			<Trigger asChild>
-				<Button
-					data-testid={`style.${uiType}`}
-					title={
-						value.type === 'mixed'
-							? msg('style-panel.mixed')
-							: msg(`${uiType}-style.${value.value}` as TLUiTranslationKey)
-					}
-					label={label}
-					icon={(icon as TLUiIconType) ?? 'mixed'}
-				/>
-			</Trigger>
-			<DropdownMenu.Content side="left" align="center" alignOffset={0}>
-				<div
-					className={classNames('tlui-button-grid', {
-						'tlui-button-grid__two': items.length < 3,
-						'tlui-button-grid__three': items.length == 3,
-						'tlui-button-grid__four': items.length >= 4,
-					})}
-				>
+		<TldrawUiDropdownMenuRoot id={`style panel ${id}`}>
+			<TldrawUiDropdownMenuTrigger>
+				<TldrawUiButton type={type} data-testid={`style.${uiType}`} title={titleStr}>
+					{labelStr && <TldrawUiButtonLabel>{labelStr}</TldrawUiButtonLabel>}
+					<TldrawUiButtonIcon icon={(icon as TLUiIconType) ?? 'mixed'} />
+				</TldrawUiButton>
+			</TldrawUiDropdownMenuTrigger>
+			<TldrawUiDropdownMenuContent side="left" align="center" alignOffset={0}>
+				<div className="tlui-buttons__grid">
 					{items.map((item) => {
 						return (
-							<DropdownMenu.Item
-								className="tlui-button-grid__button"
-								data-testid={`style.${uiType}.${item.value}`}
-								title={msg(`${uiType}-style.${item.value}` as TLUiTranslationKey)}
-								key={item.value}
-								icon={item.icon as TLUiIconType}
-								onClick={() => onValueChange(style, item.value, false)}
-							/>
+							<TldrawUiDropdownMenuItem key={item.value}>
+								<TldrawUiButton
+									type="icon"
+									data-testid={`style.${uiType}.${item.value}`}
+									title={
+										stylePanelName +
+										' — ' +
+										msg(`${uiType}-style.${item.value}` as TLUiTranslationKey)
+									}
+									onClick={() => {
+										editor.markHistoryStoppingPoint('select style dropdown item')
+										onValueChange(style, item.value)
+									}}
+								>
+									<TldrawUiButtonIcon icon={item.icon} />
+								</TldrawUiButton>
+							</TldrawUiDropdownMenuItem>
 						)
 					})}
 				</div>
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
+			</TldrawUiDropdownMenuContent>
+		</TldrawUiDropdownMenuRoot>
 	)
-})
+}
+
+// need to export like this to get generics
+export const DropdownPicker = React.memo(DropdownPickerInner) as typeof DropdownPickerInner

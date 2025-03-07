@@ -1,14 +1,20 @@
-import { Editor, HIT_TEST_MARGIN, TLShape, isShapeId } from '@tldraw/editor'
+import { Editor, TLClickEventInfo, TLPointerEventInfo, TLShape, isShapeId } from '@tldraw/editor'
 
-export function selectOnCanvasPointerUp(editor: Editor) {
-	const { selectedShapeIds } = editor
-	const { shiftKey, altKey, currentPagePoint } = editor.inputs
+export function selectOnCanvasPointerUp(
+	editor: Editor,
+	info: TLPointerEventInfo | TLClickEventInfo
+) {
+	const selectedShapeIds = editor.getSelectedShapeIds()
+	const { currentPagePoint } = editor.inputs
+	const { shiftKey, altKey, accelKey } = info
+	const additiveSelectionKey = shiftKey || accelKey
 
 	const hitShape = editor.getShapeAtPoint(currentPagePoint, {
 		hitInside: false,
-		margin: HIT_TEST_MARGIN / editor.zoomLevel,
+		margin: editor.options.hitTestMargin / editor.getZoomLevel(),
 		hitLabels: true,
 		renderingOnly: true,
+		filter: (shape) => !shape.isLocked,
 	})
 
 	// Note at the start: if we select a shape that is inside of a group,
@@ -23,16 +29,16 @@ export function selectOnCanvasPointerUp(editor: Editor) {
 		const outermostSelectableShape = editor.getOutermostSelectableShape(hitShape)
 		// If the user is holding shift, they're either adding to or removing from
 		// their selection.
-		if (shiftKey && !altKey) {
+		if (additiveSelectionKey && !altKey) {
 			editor.cancelDoubleClick() // fuckin eh
 
 			if (selectedShapeIds.includes(outermostSelectableShape.id)) {
 				// Remove it from selected shapes
-				editor.mark('deselecting shape')
+				editor.markHistoryStoppingPoint('deselecting shape')
 				editor.deselect(outermostSelectableShape)
 			} else {
 				// Add it to selected shapes
-				editor.mark('shift selecting shape')
+				editor.markHistoryStoppingPoint('shift selecting shape')
 				editor.setSelectedShapes([...selectedShapeIds, outermostSelectableShape.id])
 			}
 		} else {
@@ -48,7 +54,7 @@ export function selectOnCanvasPointerUp(editor: Editor) {
 				// Otherwise, if the group isn't selected and isn't our current
 				// focus layer, then we need to select the group instead.
 				if (
-					outermostSelectableShape.id === editor.focusedGroupId ||
+					outermostSelectableShape.id === editor.getFocusedGroupId() ||
 					selectedShapeIds.includes(outermostSelectableShape.id)
 				) {
 					shapeToSelect = hitShape
@@ -58,13 +64,13 @@ export function selectOnCanvasPointerUp(editor: Editor) {
 			}
 
 			if (shapeToSelect && !selectedShapeIds.includes(shapeToSelect.id)) {
-				editor.mark('selecting shape')
+				editor.markHistoryStoppingPoint('selecting shape')
 				editor.select(shapeToSelect.id)
 			}
 		}
 	} else {
 		// We didn't hit anything...
-		if (shiftKey) {
+		if (additiveSelectionKey) {
 			// If we were holding shift, then it's a noop. We keep the
 			// current selection because we didn't add anything to it
 			return
@@ -73,14 +79,14 @@ export function selectOnCanvasPointerUp(editor: Editor) {
 			// nothing instead of their current selection.
 
 			if (selectedShapeIds.length > 0) {
-				editor.mark('selecting none')
+				editor.markHistoryStoppingPoint('selecting none')
 				editor.selectNone()
 			}
 
 			// If the click was inside of the current focused group, then
 			// we keep that focused group; otherwise we clear the focused
 			// group (reset it to the page)
-			const { focusedGroupId } = editor
+			const focusedGroupId = editor.getFocusedGroupId()
 
 			if (isShapeId(focusedGroupId)) {
 				const groupShape = editor.getShape(focusedGroupId)!

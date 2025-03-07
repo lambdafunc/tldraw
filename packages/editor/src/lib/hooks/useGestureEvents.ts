@@ -2,8 +2,9 @@ import type { AnyHandlerEventTypes, EventTypes, GestureKey, Handler } from '@use
 import { createUseGesture, pinchAction, wheelAction } from '@use-gesture/react'
 import * as React from 'react'
 import { TLWheelEventInfo } from '../editor/types/event-types'
-import { Vec2d } from '../primitives/Vec2d'
-import { preventDefault } from '../utils/dom'
+import { Vec } from '../primitives/Vec'
+import { preventDefault, stopEventPropagation } from '../utils/dom'
+import { isAccelKey } from '../utils/keyboard'
 import { normalizeWheel } from '../utils/normalizeWheel'
 import { useEditor } from './useEditor'
 
@@ -81,7 +82,7 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 		let pinchState = 'not sure' as 'not sure' | 'zooming' | 'panning'
 
 		const onWheel: Handler<'wheel', WheelEvent> = ({ event }) => {
-			if (!editor.instanceState.isFocused) {
+			if (!editor.getInstanceState().isFocused) {
 				return
 			}
 
@@ -97,12 +98,13 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 			// default on the evnet) if the user is wheeling over an a shape
 			// that is scrollable which they're currently editing.
 
-			if (editor.editingShapeId) {
-				const shape = editor.getShape(editor.editingShapeId)
+			const editingShapeId = editor.getEditingShapeId()
+			if (editingShapeId) {
+				const shape = editor.getShape(editingShapeId)
 				if (shape) {
 					const util = editor.getShapeUtil(shape)
 					if (util.canScroll(shape)) {
-						const bounds = editor.getShapePageBounds(editor.editingShapeId)
+						const bounds = editor.getShapePageBounds(editingShapeId)
 						if (bounds?.containsPoint(editor.inputs.currentPagePoint)) {
 							return
 						}
@@ -111,6 +113,7 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 			}
 
 			preventDefault(event)
+			stopEventPropagation(event)
 			const delta = normalizeWheel(event)
 
 			if (delta.x === 0 && delta.y === 0) return
@@ -119,9 +122,12 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 				type: 'wheel',
 				name: 'wheel',
 				delta,
+				point: new Vec(event.clientX, event.clientY),
 				shiftKey: event.shiftKey,
 				altKey: event.altKey,
 				ctrlKey: event.metaKey || event.ctrlKey,
+				metaKey: event.metaKey,
+				accelKey: isAccelKey(event),
 			}
 
 			editor.dispatch(info)
@@ -131,8 +137,8 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 		let initZoom = 1 // the browser's zoom level when the pinch starts
 		let currZoom = 1 // the current zoom level according to the pinch gesture recognizer
 		let currDistanceBetweenFingers = 0
-		const initPointBetweenFingers = new Vec2d()
-		const prevPointBetweenFingers = new Vec2d()
+		const initPointBetweenFingers = new Vec()
+		const prevPointBetweenFingers = new Vec()
 
 		const onPinchStart: PinchHandler = (gesture) => {
 			const elm = ref.current
@@ -148,16 +154,18 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 			initPointBetweenFingers.x = origin[0]
 			initPointBetweenFingers.y = origin[1]
 			initDistanceBetweenFingers = da[0]
-			initZoom = editor.zoomLevel
+			initZoom = editor.getZoomLevel()
 
 			editor.dispatch({
 				type: 'pinch',
 				name: 'pinch_start',
-				point: { x: origin[0], y: origin[1], z: editor.zoomLevel },
+				point: { x: origin[0], y: origin[1], z: editor.getZoomLevel() },
 				delta: { x: 0, y: 0 },
 				shiftKey: event.shiftKey,
 				altKey: event.altKey,
 				ctrlKey: event.metaKey || event.ctrlKey,
+				metaKey: event.metaKey,
+				accelKey: isAccelKey(event),
 			})
 		}
 
@@ -179,7 +187,7 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 			// How far have the two touch points moved towards or away from eachother?
 			const touchDistance = Math.abs(currDistanceBetweenFingers - initDistanceBetweenFingers)
 			// How far has the point between the touches moved?
-			const originDistance = Vec2d.Dist(initPointBetweenFingers, prevPointBetweenFingers)
+			const originDistance = Vec.Dist(initPointBetweenFingers, prevPointBetweenFingers)
 
 			switch (pinchState) {
 				case 'not sure': {
@@ -241,6 +249,8 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 						shiftKey: event.shiftKey,
 						altKey: event.altKey,
 						ctrlKey: event.metaKey || event.ctrlKey,
+						metaKey: event.metaKey,
+						accelKey: isAccelKey(event),
 					})
 					break
 				}
@@ -253,6 +263,8 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 						shiftKey: event.shiftKey,
 						altKey: event.altKey,
 						ctrlKey: event.metaKey || event.ctrlKey,
+						metaKey: event.metaKey,
+						accelKey: isAccelKey(event),
 					})
 					break
 				}
@@ -270,7 +282,7 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 
 			pinchState = 'not sure'
 
-			requestAnimationFrame(() => {
+			editor.timers.requestAnimationFrame(() => {
 				editor.dispatch({
 					type: 'pinch',
 					name: 'pinch_end',
@@ -279,6 +291,8 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 					shiftKey: event.shiftKey,
 					altKey: event.altKey,
 					ctrlKey: event.metaKey || event.ctrlKey,
+					metaKey: event.metaKey,
+					accelKey: isAccelKey(event),
 				})
 			})
 		}
@@ -295,9 +309,14 @@ export function useGestureEvents(ref: React.RefObject<HTMLDivElement>) {
 		target: ref,
 		eventOptions: { passive: false },
 		pinch: {
-			from: () => [editor.zoomLevel, 0], // Return the camera z to use when pinch starts
+			from: () => [editor.getZoomLevel(), 0], // Return the camera z to use when pinch starts
 			scaleBounds: () => {
-				return { from: editor.zoomLevel, max: 8, min: 0.05 }
+				const baseZoom = editor.getBaseZoom()
+				const zoomSteps = editor.getCameraOptions().zoomSteps
+				const zoomMin = zoomSteps[0] * baseZoom
+				const zoomMax = zoomSteps[zoomSteps.length - 1] * baseZoom
+
+				return { from: editor.getZoomLevel(), max: zoomMax, min: zoomMin }
 			},
 		},
 	})

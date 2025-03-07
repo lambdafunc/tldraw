@@ -1,29 +1,67 @@
 import { LazyConfig } from 'lazyrepo'
 
-export function generateSharedScripts(bublic: '<rootDir>' | '<rootDir>/bublic') {
-	return {
+const config = {
+	baseCacheConfig: {
+		include: [
+			'<rootDir>/package.json',
+			'<rootDir>/yarn.lock',
+			'<rootDir>/lazy.config.ts',
+			'<rootDir>/internal/config/**/*',
+			'<rootDir>/internal/scripts/**/*',
+			'package.json',
+		],
+		exclude: [
+			'<allWorkspaceDirs>/coverage/**/*',
+			'<allWorkspaceDirs>/dist*/**/*',
+			'<allWorkspaceDirs>/.next*/**/*',
+			'**/*.tsbuildinfo',
+			'<rootDir>/docs/gen/**/*',
+		],
+	},
+	scripts: {
 		build: {
 			baseCommand: 'exit 0',
-			runsAfter: { prebuild: {}, 'refresh-assets': {} },
+			runsAfter: { prebuild: {}, 'refresh-assets': {}, 'build-i18n': {} },
 			workspaceOverrides: {
-				'{bublic/,}apps/vscode/*': { runsAfter: { 'refresh-assets': {} } },
-				'{bublic/,}packages/*': {
+				'apps/vscode/*': { runsAfter: { 'refresh-assets': {} } },
+				'packages/*': {
 					runsAfter: { 'build-api': { in: 'self-only' }, prebuild: { in: 'self-only' } },
 					cache: {
 						inputs: ['api/**/*', 'src/**/*'],
+					},
+				},
+				'apps/docs': {
+					runsAfter: { 'build-api': { in: 'all-packages' } },
+					cache: {
+						inputs: [
+							'app/**/*',
+							'api/**/*',
+							'components/**/*',
+							'public/**/*',
+							'scrips/**/*',
+							'styles/**/*',
+							'types/**/*',
+							'utils/**/*',
+						],
 					},
 				},
 			},
 		},
 		dev: {
 			execution: 'independent',
-			runsAfter: { 'refresh-assets': {} },
+			runsAfter: { predev: {}, 'refresh-assets': {}, 'build-i18n': {} },
 			cache: 'none',
 			workspaceOverrides: {
-				'{bublic/,}apps/vscode/*': { runsAfter: { build: { in: 'self-only' } } },
+				'apps/vscode/*': { runsAfter: { build: { in: 'self-only' } } },
 			},
 		},
-		test: {
+		e2e: {
+			cache: 'none',
+		},
+		'e2e-x10': {
+			cache: 'none',
+		},
+		'test-ci': {
 			baseCommand: 'yarn run -T jest',
 			runsAfter: { 'refresh-assets': {} },
 			cache: {
@@ -50,14 +88,20 @@ export function generateSharedScripts(bublic: '<rootDir>' | '<rootDir>/bublic') 
 		},
 		'refresh-assets': {
 			execution: 'top-level',
-			baseCommand: `tsx ${bublic}/scripts/refresh-assets.ts`,
+			baseCommand: `tsx <rootDir>/internal/scripts/refresh-assets.ts`,
 			cache: {
-				inputs: ['package.json', `${bublic}/scripts/refresh-assets.ts`, `${bublic}/assets/**/*`],
+				inputs: [
+					'package.json',
+					`<rootDir>/internal/scripts/refresh-assets.ts`,
+					`<rootDir>/assets/**/*`,
+					`<rootDir>/apps/dotcom/client/assets/**/*`,
+					`<rootDir>/packages/*/package.json`,
+				],
 			},
 		},
 		'build-types': {
 			execution: 'top-level',
-			baseCommand: `tsx ${bublic}/scripts/typecheck.ts`,
+			baseCommand: `tsx <rootDir>/internal/scripts/typecheck.ts`,
 			cache: {
 				inputs: {
 					include: ['<allWorkspaceDirs>/**/*.{ts,tsx}', '<allWorkspaceDirs>/tsconfig.json'],
@@ -86,35 +130,21 @@ export function generateSharedScripts(bublic: '<rootDir>' | '<rootDir>/bublic') 
 				},
 			},
 		},
-		'api-check': {
-			execution: 'top-level',
-			baseCommand: `tsx ${bublic}/scripts/api-check.ts`,
-			runsAfter: { 'build-api': {} },
+		'build-i18n': {
+			execution: 'independent',
 			cache: {
-				inputs: [`${bublic}/packages/*/api/public.d.ts`],
+				inputs: ['<rootDir>/apps/dotcom/client/public/tla/locales/*.json'],
+				outputs: ['<rootDir>/apps/dotcom/client/public/tla/locales-compiled/*.json'],
 			},
 		},
-	} satisfies LazyConfig['scripts']
-}
-
-const config = {
-	baseCacheConfig: {
-		include: [
-			'<rootDir>/{,bublic/}package.json',
-			'<rootDir>/{,bublic/}public-yarn.lock',
-			'<rootDir>/{,bublic/}lazy.config.ts',
-			'<rootDir>/{,bublic/}config/**/*',
-			'<rootDir>/{,bublic/}scripts/**/*',
-		],
-		exclude: [
-			'<allWorkspaceDirs>/coverage/**/*',
-			'<allWorkspaceDirs>/dist*/**/*',
-			'**/*.tsbuildinfo',
-			'<rootDir>/{,bublic/}docs/gen/**/*',
-		],
-	},
-	scripts: {
-		...generateSharedScripts('<rootDir>'),
+		'api-check': {
+			execution: 'top-level',
+			baseCommand: `tsx <rootDir>/internal/scripts/api-check.ts`,
+			runsAfter: { 'build-api': {} },
+			cache: {
+				inputs: [`<rootDir>/packages/*/api/public.d.ts`],
+			},
+		},
 	},
 } satisfies LazyConfig
 

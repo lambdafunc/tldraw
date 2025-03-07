@@ -1,33 +1,34 @@
-import { StoreSnapshot } from '@tldraw/store'
-import { TLRecord } from '@tldraw/tlschema'
-import { useEffect, useRef, useState } from 'react'
-import { TLStoreOptions, createTLStore } from '../config/createTLStore'
+import { areObjectsShallowEqual } from '@tldraw/utils'
+import { useState } from 'react'
+import {
+	TLStoreOptions,
+	TLStoreSchemaOptions,
+	createTLSchemaFromUtils,
+	createTLStore,
+} from '../config/createTLStore'
 
 /** @public */
-export function useTLStore(opts: TLStoreOptions & { snapshot?: StoreSnapshot<TLRecord> }) {
-	const [store, setStore] = useState(() => {
-		const store = createTLStore(opts)
-		if (opts.snapshot) {
-			store.loadSnapshot(opts.snapshot)
-		}
-		return store
-	})
-	// prev
-	const ref = useRef(opts)
-	useEffect(() => void (ref.current = opts))
+export function useTLStore(opts: TLStoreOptions) {
+	const [current, setCurrent] = useState(() => ({ store: createTLStore(opts), opts }))
 
-	if (
-		// shallow equality check
-		(Object.keys(ref.current) as (keyof TLStoreOptions)[]).some(
-			(key) => ref.current[key] !== opts[key]
-		)
-	) {
-		const newStore = createTLStore(opts)
-		if (opts.snapshot) {
-			newStore.loadSnapshot(opts.snapshot)
-		}
-		setStore(newStore)
-		return newStore
+	if (!areObjectsShallowEqual(current.opts, opts)) {
+		const next = { store: createTLStore(opts), opts }
+		setCurrent(next)
+		return next.store
 	}
-	return store
+
+	return current.store
+}
+
+/** @public */
+export function useTLSchemaFromUtils(opts: TLStoreSchemaOptions) {
+	const [current, setCurrent] = useState(() => ({ opts, schema: createTLSchemaFromUtils(opts) }))
+
+	if (!areObjectsShallowEqual(current.opts, opts)) {
+		const next = createTLSchemaFromUtils(opts)
+		setCurrent({ opts, schema: next })
+		return next
+	}
+
+	return current.schema
 }

@@ -5,6 +5,7 @@ import {
 	SharedStyle,
 	TLGeoShape,
 	TLGroupShape,
+	toRichText,
 } from '@tldraw/editor'
 import { TestEditor, createDefaultShapes, defaultShapesIds } from './TestEditor'
 import { TL } from './test-jsx'
@@ -23,18 +24,18 @@ function asPlainObject(styles: ReadonlySharedStyleMap | null) {
 beforeEach(() => {
 	editor = new TestEditor()
 	editor.createShapes(createDefaultShapes())
-	editor.reparentShapes([defaultShapesIds.ellipse1], editor.currentPageId)
+	editor.reparentShapes([defaultShapesIds.ellipse1], editor.getCurrentPageId())
 })
 
 describe('Editor.styles', () => {
 	it('should return empty if nothing is selected', () => {
 		editor.selectNone()
-		expect(asPlainObject(editor.sharedStyles)).toStrictEqual({})
+		expect(asPlainObject(editor.getSharedStyles())).toStrictEqual({})
 	})
 
 	it('should return styles for a single shape', () => {
 		editor.select(defaultShapesIds.box1)
-		expect(asPlainObject(editor.sharedStyles)).toStrictEqual({
+		expect(asPlainObject(editor.getSharedStyles())).toStrictEqual({
 			'tldraw:horizontalAlign': { type: 'shared', value: 'middle' },
 			'tldraw:labelColor': { type: 'shared', value: 'black' },
 			'tldraw:color': { type: 'shared', value: 'black' },
@@ -49,7 +50,7 @@ describe('Editor.styles', () => {
 
 	it('should return styles for two matching shapes', () => {
 		editor.select(defaultShapesIds.box1, defaultShapesIds.box2)
-		expect(asPlainObject(editor.sharedStyles)).toStrictEqual({
+		expect(asPlainObject(editor.getSharedStyles())).toStrictEqual({
 			'tldraw:horizontalAlign': { type: 'shared', value: 'middle' },
 			'tldraw:labelColor': { type: 'shared', value: 'black' },
 			'tldraw:color': { type: 'shared', value: 'black' },
@@ -73,7 +74,7 @@ describe('Editor.styles', () => {
 
 		editor.select(defaultShapesIds.box1, defaultShapesIds.box2)
 
-		expect(asPlainObject(editor.sharedStyles)).toStrictEqual({
+		expect(asPlainObject(editor.getSharedStyles())).toStrictEqual({
 			'tldraw:horizontalAlign': { type: 'shared', value: 'middle' },
 			'tldraw:labelColor': { type: 'shared', value: 'black' },
 			'tldraw:color': { type: 'mixed' },
@@ -87,7 +88,7 @@ describe('Editor.styles', () => {
 	})
 
 	it('should return mixed for all mixed styles', () => {
-		editor.updateShapes([
+		editor.updateShapes<TLGeoShape>([
 			{
 				id: defaultShapesIds.box1,
 				type: 'geo',
@@ -103,7 +104,7 @@ describe('Editor.styles', () => {
 				type: 'geo',
 				props: {
 					align: 'start',
-					text: 'hello world this is a long sentence that should wrap',
+					richText: toRichText('hello world this is a long sentence that should wrap'),
 					w: 100,
 					url: 'https://aol.com',
 					verticalAlign: 'start',
@@ -113,7 +114,7 @@ describe('Editor.styles', () => {
 
 		editor.selectAll()
 
-		expect(asPlainObject(editor.sharedStyles)).toStrictEqual({
+		expect(asPlainObject(editor.getSharedStyles())).toStrictEqual({
 			'tldraw:color': { type: 'mixed' },
 			'tldraw:dash': { type: 'mixed' },
 			'tldraw:fill': { type: 'mixed' },
@@ -128,7 +129,7 @@ describe('Editor.styles', () => {
 
 	it('should return the same styles object if nothing relevant changes', () => {
 		editor.select(defaultShapesIds.box1, defaultShapesIds.box2)
-		const initialStyles = editor.sharedStyles
+		const initialStyles = editor.getSharedStyles()
 
 		// update position of one of the shapes - not a style prop, so maps to same styles
 		editor.updateShapes([
@@ -140,7 +141,7 @@ describe('Editor.styles', () => {
 			},
 		])
 
-		expect(editor.sharedStyles).toBe(initialStyles)
+		expect(editor.getSharedStyles()).toBe(initialStyles)
 	})
 })
 
@@ -191,9 +192,9 @@ describe('Editor.setStyle', () => {
 	it('stores styles on stylesForNextShape', () => {
 		editor.setStyleForSelectedShapes(DefaultColorStyle, 'red')
 		editor.setStyleForNextShapes(DefaultColorStyle, 'red')
-		expect(editor.instanceState.stylesForNextShape[DefaultColorStyle.id]).toBe('red')
+		expect(editor.getInstanceState().stylesForNextShape[DefaultColorStyle.id]).toBe('red')
 		editor.setStyleForSelectedShapes(DefaultColorStyle, 'green')
 		editor.setStyleForNextShapes(DefaultColorStyle, 'green')
-		expect(editor.instanceState.stylesForNextShape[DefaultColorStyle.id]).toBe('green')
+		expect(editor.getInstanceState().stylesForNextShape[DefaultColorStyle.id]).toBe('green')
 	})
 })

@@ -1,9 +1,23 @@
-import { Editor, getIndexAbove, getIndexBelow, getIndexBetween, TLPageId } from '@tldraw/editor'
+import {
+	Editor,
+	getIndexAbove,
+	getIndexBelow,
+	getIndexBetween,
+	IndexKey,
+	TLPageId,
+} from '@tldraw/editor'
+import { TLUiEventContextType } from '../../context/events'
 
-export const onMovePage = (editor: Editor, id: TLPageId, from: number, to: number) => {
-	let index: string
+export const onMovePage = (
+	editor: Editor,
+	id: TLPageId,
+	from: number,
+	to: number,
+	trackEvent: TLUiEventContextType
+) => {
+	let index: IndexKey
 
-	const pages = editor.pages
+	const pages = editor.getPages()
 
 	const below = from > to ? pages[to - 1] : pages[to]
 	const above = from > to ? pages[to] : pages[to + 1]
@@ -17,10 +31,11 @@ export const onMovePage = (editor: Editor, id: TLPageId, from: number, to: numbe
 	}
 
 	if (index !== pages[from].index) {
-		editor.mark('moving page')
+		editor.markHistoryStoppingPoint('moving page')
 		editor.updatePage({
 			id: id as TLPageId,
 			index,
 		})
+		trackEvent('move-page', { source: 'page-menu' })
 	}
 }

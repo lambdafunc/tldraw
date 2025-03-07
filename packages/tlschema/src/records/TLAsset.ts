@@ -1,19 +1,20 @@
-import { createRecordType, defineMigrations, RecordId } from '@tldraw/store'
+import {
+	createMigrationIds,
+	createRecordMigrationSequence,
+	createRecordType,
+	RecordId,
+} from '@tldraw/store'
 import { T } from '@tldraw/validate'
 import { TLBaseAsset } from '../assets/TLBaseAsset'
-import {
-	bookmarkAssetMigrations,
-	bookmarkAssetValidator,
-	TLBookmarkAsset,
-} from '../assets/TLBookmarkAsset'
-import { imageAssetMigrations, imageAssetValidator, TLImageAsset } from '../assets/TLImageAsset'
-import { TLVideoAsset, videoAssetMigrations, videoAssetValidator } from '../assets/TLVideoAsset'
+import { bookmarkAssetValidator, TLBookmarkAsset } from '../assets/TLBookmarkAsset'
+import { imageAssetValidator, TLImageAsset } from '../assets/TLImageAsset'
+import { TLVideoAsset, videoAssetValidator } from '../assets/TLVideoAsset'
 import { TLShape } from './TLShape'
 
 /** @public */
 export type TLAsset = TLImageAsset | TLVideoAsset | TLBookmarkAsset
 
-/** @internal */
+/** @public */
 export const assetValidator: T.Validator<TLAsset> = T.model(
 	'asset',
 	T.union('type', {
@@ -23,35 +24,23 @@ export const assetValidator: T.Validator<TLAsset> = T.model(
 	})
 )
 
-/** @internal */
-export const assetVersions = {
+/** @public */
+export const assetVersions = createMigrationIds('com.tldraw.asset', {
 	AddMeta: 1,
-}
+} as const)
 
-/** @internal */
-export const assetMigrations = defineMigrations({
-	subTypeKey: 'type',
-	subTypeMigrations: {
-		image: imageAssetMigrations,
-		video: videoAssetMigrations,
-		bookmark: bookmarkAssetMigrations,
-	},
-	currentVersion: assetVersions.AddMeta,
-	migrators: {
-		[assetVersions.AddMeta]: {
+/** @public */
+export const assetMigrations = createRecordMigrationSequence({
+	sequenceId: 'com.tldraw.asset',
+	recordType: 'asset',
+	sequence: [
+		{
+			id: assetVersions.AddMeta,
 			up: (record) => {
-				return {
-					...record,
-					meta: {},
-				}
-			},
-			down: ({ meta: _, ...record }) => {
-				return {
-					...record,
-				}
+				;(record as any).meta = {}
 			},
 		},
-	},
+	],
 })
 
 /** @public */
@@ -61,12 +50,11 @@ export type TLAssetPartial<T extends TLAsset = TLAsset> = T extends T
 			type: T['type']
 			props?: Partial<T['props']>
 			meta?: Partial<T['meta']>
-	  } & Partial<Omit<T, 'type' | 'id' | 'props' | 'meta'>>
+		} & Partial<Omit<T, 'type' | 'id' | 'props' | 'meta'>>
 	: never
 
 /** @public */
 export const AssetRecordType = createRecordType<TLAsset>('asset', {
-	migrations: assetMigrations,
 	validator: assetValidator,
 	scope: 'document',
 }).withDefaultProperties(() => ({

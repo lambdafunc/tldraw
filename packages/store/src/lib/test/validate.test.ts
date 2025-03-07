@@ -45,19 +45,10 @@ const Author = createRecordType<Author>('author', {
 	isPseudonym: false,
 }))
 
-const schema = StoreSchema.create<Book | Author>(
-	{
-		book: Book,
-		author: Author,
-	},
-	{
-		snapshotMigrations: {
-			currentVersion: 0,
-			firstVersion: 0,
-			migrators: {},
-		},
-	}
-)
+const schema = StoreSchema.create<Book | Author>({
+	book: Book,
+	author: Author,
+})
 
 describe('Store with validation', () => {
 	let store: Store<Book | Author>
@@ -69,7 +60,7 @@ describe('Store with validation', () => {
 	it('Accepts valid records and rejects invalid records', () => {
 		store.put([Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })])
 
-		expect(store.query.records('author').value).toEqual([
+		expect(store.query.records('author').get()).toEqual([
 			{ id: 'author:tolkein', typeName: 'author', name: 'J.R.R Tolkein', isPseudonym: false },
 		])
 
@@ -85,7 +76,7 @@ describe('Store with validation', () => {
 			])
 		}).toThrow()
 
-		expect(store.query.records('book').value).toEqual([])
+		expect(store.query.records('book').get()).toEqual([])
 	})
 })
 
@@ -112,14 +103,14 @@ describe('Validating initial data', () => {
 	it('Validates initial data', () => {
 		expect(() => {
 			new Store<Book | Author>({ schema, initialData: snapshot, props: {} })
-		}).not.toThrowError()
+		}).not.toThrow()
 
 		expect(() => {
 			// @ts-expect-error
 			snapshot[0].name = 4
 
 			new Store<Book | Author>({ schema, initialData: snapshot, props: {} })
-		}).toThrowError()
+		}).toThrow()
 	})
 })
 

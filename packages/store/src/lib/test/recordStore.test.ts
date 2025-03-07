@@ -1,7 +1,9 @@
 import { Computed, react, RESET_VALUE, transact } from '@tldraw/state'
 import { BaseRecord, RecordId } from '../BaseRecord'
+import { createMigrationSequence } from '../migrate'
+import { RecordsDiff, reverseRecordsDiff } from '../RecordsDiff'
 import { createRecordType } from '../RecordType'
-import { CollectionDiff, RecordsDiff, Store } from '../Store'
+import { CollectionDiff, Store } from '../Store'
 import { StoreSchema } from '../StoreSchema'
 
 interface Book extends BaseRecord<'book', RecordId<Book>> {
@@ -47,26 +49,17 @@ describe('Store', () => {
 	beforeEach(() => {
 		store = new Store({
 			props: {},
-			schema: StoreSchema.create<LibraryType>(
-				{
-					book: Book,
-					author: Author,
-					visit: Visit,
-				},
-				{
-					snapshotMigrations: {
-						currentVersion: 0,
-						firstVersion: 0,
-						migrators: {},
-					},
-				}
-			),
+			schema: StoreSchema.create<LibraryType>({
+				book: Book,
+				author: Author,
+				visit: Visit,
+			}),
 		})
 	})
 
 	it('allows records to be added', () => {
 		store.put([Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })])
-		expect(store.query.records('author').value).toEqual([
+		expect(store.query.records('author').get()).toEqual([
 			{ id: 'author:tolkein', typeName: 'author', name: 'J.R.R Tolkein', isPseudonym: false },
 		])
 
@@ -80,7 +73,7 @@ describe('Store', () => {
 			},
 		])
 
-		expect(store.query.records('book').value).toEqual([
+		expect(store.query.records('book').get()).toEqual([
 			{
 				id: 'book:the-hobbit',
 				typeName: 'book',
@@ -107,18 +100,18 @@ describe('Store', () => {
 			store.put([Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })])
 
 			expect(lastDiff!).toMatchInlineSnapshot(`
-			        Array [
-			          Object {
-			            "added": Object {
-			              "author:tolkein": Object {
+			        [
+			          {
+			            "added": {
+			              "author:tolkein": {
 			                "id": "author:tolkein",
 			                "isPseudonym": false,
 			                "name": "J.R.R Tolkein",
 			                "typeName": "author",
 			              },
 			            },
-			            "removed": Object {},
-			            "updated": Object {},
+			            "removed": {},
+			            "updated": {},
 			          },
 			        ]
 		      `)
@@ -126,19 +119,19 @@ describe('Store', () => {
 			store.update(Author.createId('tolkein'), (r) => ({ ...r, name: 'Jimmy Tolks' }))
 
 			expect(lastDiff!).toMatchInlineSnapshot(`
-			        Array [
-			          Object {
-			            "added": Object {},
-			            "removed": Object {},
-			            "updated": Object {
-			              "author:tolkein": Array [
-			                Object {
+			        [
+			          {
+			            "added": {},
+			            "removed": {},
+			            "updated": {
+			              "author:tolkein": [
+			                {
 			                  "id": "author:tolkein",
 			                  "isPseudonym": false,
 			                  "name": "J.R.R Tolkein",
 			                  "typeName": "author",
 			                },
-			                Object {
+			                {
 			                  "id": "author:tolkein",
 			                  "isPseudonym": false,
 			                  "name": "Jimmy Tolks",
@@ -153,18 +146,18 @@ describe('Store', () => {
 			store.remove([Author.createId('tolkein')])
 
 			expect(lastDiff!).toMatchInlineSnapshot(`
-			        Array [
-			          Object {
-			            "added": Object {},
-			            "removed": Object {
-			              "author:tolkein": Object {
+			        [
+			          {
+			            "added": {},
+			            "removed": {
+			              "author:tolkein": {
 			                "id": "author:tolkein",
 			                "isPseudonym": false,
 			                "name": "Jimmy Tolks",
 			                "typeName": "author",
 			              },
 			            },
-			            "updated": Object {},
+			            "updated": {},
 			          },
 			        ]
 		      `)
@@ -181,30 +174,30 @@ describe('Store', () => {
 			})
 
 			expect(lastDiff!).toMatchInlineSnapshot(`
-			Array [
-			  Object {
-			    "added": Object {
-			      "author:cj": Object {
+			[
+			  {
+			    "added": {
+			      "author:cj": {
 			        "id": "author:cj",
 			        "isPseudonym": false,
 			        "name": "Carter, Jimmy",
 			        "typeName": "author",
 			      },
-			      "author:dfw": Object {
+			      "author:dfw": {
 			        "id": "author:dfw",
 			        "isPseudonym": false,
 			        "name": "David Foster Wallace",
 			        "typeName": "author",
 			      },
-			      "author:tolkein": Object {
+			      "author:tolkein": {
 			        "id": "author:tolkein",
 			        "isPseudonym": false,
 			        "name": "Jimmy Tolks",
 			        "typeName": "author",
 			      },
 			    },
-			    "removed": Object {},
-			    "updated": Object {},
+			    "removed": {},
+			    "updated": {},
 			  },
 			]
 		`)
@@ -213,40 +206,41 @@ describe('Store', () => {
 
 	it('allows adding onAfterChange callbacks that see the final state of the world', () => {
 		/* ADDING */
-		store.onAfterCreate = jest.fn((current) => {
+		const onAfterCreate = jest.fn((current) => {
 			expect(current).toEqual(
 				Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })
 			)
-			expect([...store.query.ids('author').value]).toEqual([Author.createId('tolkein')])
+			expect([...store.query.ids('author').get()]).toEqual([Author.createId('tolkein')])
 		})
+		store.sideEffects.registerAfterCreateHandler('author', onAfterCreate)
 		store.put([Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })])
 
-		expect(store.onAfterCreate).toHaveBeenCalledTimes(1)
+		expect(onAfterCreate).toHaveBeenCalledTimes(1)
 
 		/* UPDATING */
-		store.onAfterChange = jest.fn((prev, current) => {
-			if (prev.typeName === 'author' && current.typeName === 'author') {
-				expect(prev.name).toBe('J.R.R Tolkein')
-				expect(current.name).toBe('Butch Cassidy')
+		const onAfterChange = jest.fn((prev, current) => {
+			expect(prev.name).toBe('J.R.R Tolkein')
+			expect(current.name).toBe('Butch Cassidy')
 
-				expect(store.get(Author.createId('tolkein'))!.name).toBe('Butch Cassidy')
-			}
+			expect(store.get(Author.createId('tolkein'))!.name).toBe('Butch Cassidy')
 		})
+		store.sideEffects.registerAfterChangeHandler('author', onAfterChange)
 
 		store.update(Author.createId('tolkein'), (r) => ({ ...r, name: 'Butch Cassidy' }))
 
-		expect(store.onAfterChange).toHaveBeenCalledTimes(1)
+		expect(onAfterChange).toHaveBeenCalledTimes(1)
 
 		/* REMOVING */
-		store.onAfterDelete = jest.fn((prev) => {
+		const onAfterDelete = jest.fn((prev) => {
 			if (prev.typeName === 'author') {
 				expect(prev.name).toBe('Butch Cassidy')
 			}
 		})
+		store.sideEffects.registerAfterDeleteHandler('author', onAfterDelete)
 
 		store.remove([Author.createId('tolkein')])
 
-		expect(store.onAfterDelete).toHaveBeenCalledTimes(1)
+		expect(onAfterDelete).toHaveBeenCalledTimes(1)
 	})
 
 	it('allows finding and filtering records with a predicate', () => {
@@ -257,10 +251,16 @@ describe('Store', () => {
 			Author.create({ name: 'Cynan Jones', id: Author.createId('cj') }),
 			Author.create({ name: 'David Foster Wallace', id: Author.createId('dfw') }),
 		])
-		const Js = store.query.records('author').value.filter((r) => r.name.startsWith('J'))
+		const Js = store.query
+			.records('author')
+			.get()
+			.filter((r) => r.name.startsWith('J'))
 		expect(Js.map((j) => j.name).sort()).toEqual(['J.R.R Tolkein', 'James McAvoy'])
 
-		const david = store.query.records('author').value.find((r) => r.name.startsWith('David'))
+		const david = store.query
+			.records('author')
+			.get()
+			.find((r) => r.name.startsWith('David'))
 		expect(david?.name).toBe('David Foster Wallace')
 	})
 
@@ -278,8 +278,8 @@ describe('Store', () => {
 		store.put([Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') })])
 
 		expect(lastIdDiff).toMatchInlineSnapshot(`
-		      Array [
-		        Object {
+		      [
+		        {
 		          "added": Set {
 		            "author:tolkein",
 		          },
@@ -294,8 +294,8 @@ describe('Store', () => {
 		})
 
 		expect(lastIdDiff).toMatchInlineSnapshot(`
-		      Array [
-		        Object {
+		      [
+		        {
 		          "added": Set {
 		            "author:mcavoy",
 		            "author:cassidy",
@@ -337,35 +337,35 @@ describe('Store', () => {
 		await new Promise((resolve) => requestAnimationFrame(resolve))
 		expect(listener).toHaveBeenCalledTimes(1)
 		expect(listener.mock.lastCall[0]).toMatchInlineSnapshot(`
-		Object {
-		  "changes": Object {
-		    "added": Object {
-		      "author:cassidy": Object {
+		{
+		  "changes": {
+		    "added": {
+		      "author:cassidy": {
 		        "id": "author:cassidy",
 		        "isPseudonym": false,
 		        "name": "Butch Cassidy",
 		        "typeName": "author",
 		      },
-		      "author:mcavoy": Object {
+		      "author:mcavoy": {
 		        "id": "author:mcavoy",
 		        "isPseudonym": false,
 		        "name": "James McAvoy",
 		        "typeName": "author",
 		      },
-		      "author:tolkein": Object {
+		      "author:tolkein": {
 		        "id": "author:tolkein",
 		        "isPseudonym": false,
 		        "name": "J.R.R Tolkein",
 		        "typeName": "author",
 		      },
-		      "book:hobbit": Object {
+		      "book:hobbit": {
 		        "author": "author:tolkein",
 		        "id": "book:hobbit",
 		        "numPages": 300,
 		        "title": "The Hobbit",
 		        "typeName": "book",
 		      },
-		      "book:lotr": Object {
+		      "book:lotr": {
 		        "author": "author:tolkein",
 		        "id": "book:lotr",
 		        "numPages": 1000,
@@ -373,8 +373,8 @@ describe('Store', () => {
 		        "typeName": "book",
 		      },
 		    },
-		    "removed": Object {},
-		    "updated": Object {},
+		    "removed": {},
+		    "updated": {},
 		  },
 		  "source": "user",
 		}
@@ -392,34 +392,34 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(2)
 
 		expect(listener.mock.lastCall[0]).toMatchInlineSnapshot(`
-		Object {
-		  "changes": Object {
-		    "added": Object {},
-		    "removed": Object {},
-		    "updated": Object {
-		      "author:tolkein": Array [
-		        Object {
+		{
+		  "changes": {
+		    "added": {},
+		    "removed": {},
+		    "updated": {
+		      "author:tolkein": [
+		        {
 		          "id": "author:tolkein",
 		          "isPseudonym": false,
 		          "name": "J.R.R Tolkein",
 		          "typeName": "author",
 		        },
-		        Object {
+		        {
 		          "id": "author:tolkein",
 		          "isPseudonym": false,
 		          "name": "Jimmy Tolks",
 		          "typeName": "author",
 		        },
 		      ],
-		      "book:lotr": Array [
-		        Object {
+		      "book:lotr": [
+		        {
 		          "author": "author:tolkein",
 		          "id": "book:lotr",
 		          "numPages": 1000,
 		          "title": "The Lord of the Rings",
 		          "typeName": "book",
 		        },
-		        Object {
+		        {
 		          "author": "author:tolkein",
 		          "id": "book:lotr",
 		          "numPages": 42,
@@ -445,11 +445,11 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(3)
 
 		expect(listener.mock.lastCall[0]).toMatchInlineSnapshot(`
-		Object {
-		  "changes": Object {
-		    "added": Object {},
-		    "removed": Object {
-		      "book:lotr": Object {
+		{
+		  "changes": {
+		    "added": {},
+		    "removed": {
+		      "book:lotr": {
 		        "author": "author:tolkein",
 		        "id": "book:lotr",
 		        "numPages": 42,
@@ -457,15 +457,15 @@ describe('Store', () => {
 		        "typeName": "book",
 		      },
 		    },
-		    "updated": Object {
-		      "author:mcavoy": Array [
-		        Object {
+		    "updated": {
+		      "author:mcavoy": [
+		        {
 		          "id": "author:mcavoy",
 		          "isPseudonym": false,
 		          "name": "James McAvoy",
 		          "typeName": "author",
 		        },
-		        Object {
+		        {
 		          "id": "author:mcavoy",
 		          "isPseudonym": false,
 		          "name": "Sookie Houseboat",
@@ -505,17 +505,17 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(1)
 
 		expect(listener.mock.calls[0][0].changes).toMatchInlineSnapshot(`
-		Object {
-		  "added": Object {
-		    "visit:jimmy": Object {
-		      "booksInBasket": Array [],
+		{
+		  "added": {
+		    "visit:jimmy": {
+		      "booksInBasket": [],
 		      "id": "visit:jimmy",
 		      "typeName": "visit",
 		      "visitorName": "Jimmy Beans",
 		    },
 		  },
-		  "removed": Object {},
-		  "updated": Object {},
+		  "removed": {},
+		  "updated": {},
 		}
 	`)
 	})
@@ -534,17 +534,17 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(1)
 
 		expect(listener.mock.calls[0][0].changes).toMatchInlineSnapshot(`
-		Object {
-		  "added": Object {
-		    "author:salinger": Object {
+		{
+		  "added": {
+		    "author:salinger": {
 		      "id": "author:salinger",
 		      "isPseudonym": false,
 		      "name": "J.D. Salinger",
 		      "typeName": "author",
 		    },
 		  },
-		  "removed": Object {},
-		  "updated": Object {},
+		  "removed": {},
+		  "updated": {},
 		}
 	`)
 	})
@@ -577,15 +577,15 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(1)
 
 		expect(listener.mock.calls[0][0].changes).toMatchInlineSnapshot(`
-		Object {
-		  "added": Object {
-		    "author:tolkien": Object {
+		{
+		  "added": {
+		    "author:tolkien": {
 		      "id": "author:tolkien",
 		      "isPseudonym": false,
 		      "name": "J.R.R Tolkien",
 		      "typeName": "author",
 		    },
-		    "book:hobbit": Object {
+		    "book:hobbit": {
 		      "author": "author:tolkien",
 		      "id": "book:hobbit",
 		      "numPages": 300,
@@ -593,8 +593,8 @@ describe('Store', () => {
 		      "typeName": "book",
 		    },
 		  },
-		  "removed": Object {},
-		  "updated": Object {},
+		  "removed": {},
+		  "updated": {},
 		}
 	`)
 	})
@@ -627,23 +627,23 @@ describe('Store', () => {
 		expect(listener).toHaveBeenCalledTimes(1)
 
 		expect(listener.mock.calls[0][0].changes).toMatchInlineSnapshot(`
-		Object {
-		  "added": Object {
-		    "author:salinger": Object {
+		{
+		  "added": {
+		    "author:salinger": {
 		      "id": "author:salinger",
 		      "isPseudonym": false,
 		      "name": "J.D. Salinger",
 		      "typeName": "author",
 		    },
-		    "visit:jimmy": Object {
-		      "booksInBasket": Array [],
+		    "visit:jimmy": {
+		      "booksInBasket": [],
 		      "id": "visit:jimmy",
 		      "typeName": "visit",
 		      "visitorName": "Jimmy Beans",
 		    },
 		  },
-		  "removed": Object {},
-		  "updated": Object {},
+		  "removed": {},
+		  "updated": {},
 		}
 	`)
 	})
@@ -756,19 +756,10 @@ describe('snapshots', () => {
 	beforeEach(() => {
 		store = new Store({
 			props: {},
-			schema: StoreSchema.create<Book | Author>(
-				{
-					book: Book,
-					author: Author,
-				},
-				{
-					snapshotMigrations: {
-						currentVersion: 0,
-						firstVersion: 0,
-						migrators: {},
-					},
-				}
-			),
+			schema: StoreSchema.create<Book | Author>({
+				book: Book,
+				author: Author,
+			}),
 		})
 
 		transact(() => {
@@ -798,30 +789,21 @@ describe('snapshots', () => {
 		const serializedStore1 = store.serialize('all')
 		const serializedSchema1 = store.schema.serialize()
 
-		const snapshot1 = store.getSnapshot()
+		const snapshot1 = store.getStoreSnapshot()
 
 		const store2 = new Store({
 			props: {},
-			schema: StoreSchema.create<Book | Author>(
-				{
-					book: Book,
-					author: Author,
-				},
-				{
-					snapshotMigrations: {
-						currentVersion: 0,
-						firstVersion: 0,
-						migrators: {},
-					},
-				}
-			),
+			schema: StoreSchema.create<Book | Author>({
+				book: Book,
+				author: Author,
+			}),
 		})
 
-		store2.loadSnapshot(snapshot1)
+		store2.loadStoreSnapshot(snapshot1)
 
 		const serializedStore2 = store2.serialize('all')
 		const serializedSchema2 = store2.schema.serialize()
-		const snapshot2 = store2.getSnapshot()
+		const snapshot2 = store2.getStoreSnapshot()
 
 		expect(serializedStore1).toEqual(serializedStore2)
 		expect(serializedSchema1).toEqual(serializedSchema2)
@@ -829,58 +811,44 @@ describe('snapshots', () => {
 	})
 
 	it('throws errors when loading a snapshot with a different schema', () => {
-		const snapshot1 = store.getSnapshot()
+		const snapshot1 = store.getStoreSnapshot()
 
 		const store2 = new Store({
 			props: {},
-			schema: StoreSchema.create<Book>(
-				{
-					book: Book,
-					// no author
-				},
-				{
-					snapshotMigrations: {
-						currentVersion: 0,
-						firstVersion: 0,
-						migrators: {},
-					},
-				}
-			),
+			schema: StoreSchema.create<Book>({
+				book: Book,
+				// no author
+			}),
 		})
 
 		expect(() => {
 			// @ts-expect-error
-			store2.loadSnapshot(snapshot1)
-		}).toThrowErrorMatchingInlineSnapshot(`"Failed to migrate snapshot: unknown-type"`)
+			store2.loadStoreSnapshot(snapshot1)
+		}).toThrowErrorMatchingInlineSnapshot(`"Missing definition for record type author"`)
 	})
 
 	it('throws errors when loading a snapshot with a different schema', () => {
-		const snapshot1 = store.getSnapshot()
+		const snapshot1 = store.getStoreSnapshot()
 
 		const store2 = new Store({
 			props: {},
-			schema: StoreSchema.create<Book | Author>(
-				{
-					book: Book,
-					author: Author,
-				},
-				{
-					snapshotMigrations: {
-						currentVersion: -1,
-						firstVersion: 0,
-						migrators: {},
-					},
-				}
-			),
+			schema: StoreSchema.create<Book>({
+				book: Book,
+			}),
 		})
 
 		expect(() => {
-			store2.loadSnapshot(snapshot1)
-		}).toThrowErrorMatchingInlineSnapshot(`"Failed to migrate snapshot: target-version-too-old"`)
+			store2.loadStoreSnapshot(snapshot1 as any)
+		}).toThrowErrorMatchingInlineSnapshot(`"Missing definition for record type author"`)
 	})
 
 	it('migrates the snapshot', () => {
-		const snapshot1 = store.getSnapshot()
+		const snapshot1 = store.getStoreSnapshot()
+		const up = jest.fn((s: any) => {
+			s['book:lotr'].numPages = 42
+		})
+
+		expect((snapshot1.store as any)['book:lotr'].numPages).toBe(1000)
 
 		const store2 = new Store({
 			props: {},
@@ -890,22 +858,356 @@ describe('snapshots', () => {
 					author: Author,
 				},
 				{
-					snapshotMigrations: {
-						currentVersion: 1,
-						firstVersion: 0,
-						migrators: {
-							1: {
-								up: (r) => r,
-								down: (r) => r,
-							},
-						},
-					},
+					migrations: [
+						createMigrationSequence({
+							sequenceId: 'com.tldraw',
+							retroactive: true,
+							sequence: [
+								{
+									id: `com.tldraw/1`,
+									scope: 'store',
+									up,
+								},
+							],
+						}),
+					],
 				}
 			),
 		})
 
 		expect(() => {
-			store2.loadSnapshot(snapshot1)
-		}).not.toThrowError()
+			store2.loadStoreSnapshot(snapshot1)
+		}).not.toThrow()
+
+		expect(up).toHaveBeenCalledTimes(1)
+		expect(store2.get(Book.createId('lotr'))!.numPages).toBe(42)
+	})
+})
+
+describe('diffs', () => {
+	let store: Store<LibraryType>
+	const authorId = Author.createId('tolkein')
+	const bookId = Book.createId('hobbit')
+
+	beforeEach(() => {
+		store = new Store({
+			props: {},
+			schema: StoreSchema.create<LibraryType>({
+				book: Book,
+				author: Author,
+				visit: Visit,
+			}),
+		})
+	})
+
+	it('produces diffs from `extractingChanges`', () => {
+		expect(
+			store.extractingChanges(() => {
+				store.put([Author.create({ name: 'J.R.R Tolkein', id: authorId })])
+				store.put([
+					Book.create({ title: 'The Hobbit', id: bookId, author: authorId, numPages: 300 }),
+				])
+			})
+		).toMatchInlineSnapshot(`
+		{
+		  "added": {
+		    "author:tolkein": {
+		      "id": "author:tolkein",
+		      "isPseudonym": false,
+		      "name": "J.R.R Tolkein",
+		      "typeName": "author",
+		    },
+		    "book:hobbit": {
+		      "author": "author:tolkein",
+		      "id": "book:hobbit",
+		      "numPages": 300,
+		      "title": "The Hobbit",
+		      "typeName": "book",
+		    },
+		  },
+		  "removed": {},
+		  "updated": {},
+		}
+	`)
+
+		expect(
+			store.extractingChanges(() => {
+				store.remove([authorId])
+				store.update(bookId, (book) => ({ ...book, title: 'The Hobbit: There and Back Again' }))
+			})
+		).toMatchInlineSnapshot(`
+		{
+		  "added": {},
+		  "removed": {
+		    "author:tolkein": {
+		      "id": "author:tolkein",
+		      "isPseudonym": false,
+		      "name": "J.R.R Tolkein",
+		      "typeName": "author",
+		    },
+		  },
+		  "updated": {
+		    "book:hobbit": [
+		      {
+		        "author": "author:tolkein",
+		        "id": "book:hobbit",
+		        "numPages": 300,
+		        "title": "The Hobbit",
+		        "typeName": "book",
+		      },
+		      {
+		        "author": "author:tolkein",
+		        "id": "book:hobbit",
+		        "numPages": 300,
+		        "title": "The Hobbit: There and Back Again",
+		        "typeName": "book",
+		      },
+		    ],
+		  },
+		}
+	`)
+	})
+	it('produces diffs from `addHistoryInterceptor`', () => {
+		const diffs: any[] = []
+		const interceptor = jest.fn((diff) => diffs.push(diff))
+		store.addHistoryInterceptor(interceptor)
+
+		store.put([
+			Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') }),
+			Book.create({ title: 'The Hobbit', id: bookId, author: authorId, numPages: 300 }),
+		])
+		expect(interceptor).toHaveBeenCalledTimes(1)
+
+		store.extractingChanges(() => {
+			store.remove([authorId])
+
+			store.update(bookId, (book) => ({ ...book, title: 'The Hobbit: There and Back Again' }))
+		})
+		expect(interceptor).toHaveBeenCalledTimes(3)
+
+		expect(diffs).toMatchInlineSnapshot(`
+		[
+		  {
+		    "changes": {
+		      "added": {
+		        "author:tolkein": {
+		          "id": "author:tolkein",
+		          "isPseudonym": false,
+		          "name": "J.R.R Tolkein",
+		          "typeName": "author",
+		        },
+		        "book:hobbit": {
+		          "author": "author:tolkein",
+		          "id": "book:hobbit",
+		          "numPages": 300,
+		          "title": "The Hobbit",
+		          "typeName": "book",
+		        },
+		      },
+		      "removed": {},
+		      "updated": {},
+		    },
+		    "source": "user",
+		  },
+		  {
+		    "changes": {
+		      "added": {},
+		      "removed": {
+		        "author:tolkein": {
+		          "id": "author:tolkein",
+		          "isPseudonym": false,
+		          "name": "J.R.R Tolkein",
+		          "typeName": "author",
+		        },
+		      },
+		      "updated": {},
+		    },
+		    "source": "user",
+		  },
+		  {
+		    "changes": {
+		      "added": {},
+		      "removed": {},
+		      "updated": {
+		        "book:hobbit": [
+		          {
+		            "author": "author:tolkein",
+		            "id": "book:hobbit",
+		            "numPages": 300,
+		            "title": "The Hobbit",
+		            "typeName": "book",
+		          },
+		          {
+		            "author": "author:tolkein",
+		            "id": "book:hobbit",
+		            "numPages": 300,
+		            "title": "The Hobbit: There and Back Again",
+		            "typeName": "book",
+		          },
+		        ],
+		      },
+		    },
+		    "source": "user",
+		  },
+		]
+	`)
+	})
+
+	it('can apply and invert diffs', () => {
+		store.put([
+			Author.create({ name: 'J.R.R Tolkein', id: Author.createId('tolkein') }),
+			Book.create({ title: 'The Hobbit', id: bookId, author: authorId, numPages: 300 }),
+		])
+
+		const checkpoint1 = store.getStoreSnapshot()
+
+		const forwardsDiff = store.extractingChanges(() => {
+			store.remove([authorId])
+			store.update(bookId, (book) => ({ ...book, title: 'The Hobbit: There and Back Again' }))
+		})
+
+		const checkpoint2 = store.getStoreSnapshot()
+
+		store.applyDiff(reverseRecordsDiff(forwardsDiff))
+		expect(store.getStoreSnapshot()).toEqual(checkpoint1)
+
+		store.applyDiff(forwardsDiff)
+		expect(store.getStoreSnapshot()).toEqual(checkpoint2)
+	})
+})
+
+describe('after callbacks', () => {
+	let store: Store<Book>
+	let callbacks: any[] = []
+
+	const book1Id = Book.createId('darkness')
+	const book1 = Book.create({
+		title: 'the left hand of darkness',
+		id: book1Id,
+		author: Author.createId('ursula'),
+		numPages: 1,
+	})
+	const book2Id = Book.createId('dispossessed')
+	const book2 = Book.create({
+		title: 'the dispossessed',
+		id: book2Id,
+		author: Author.createId('ursula'),
+		numPages: 1,
+	})
+
+	let onAfterCreate: jest.Mock
+	let onAfterChange: jest.Mock
+	let onAfterDelete: jest.Mock
+	let onOperationComplete: jest.Mock
+
+	beforeEach(() => {
+		store = new Store({
+			props: {},
+			schema: StoreSchema.create<Book>({
+				book: Book,
+			}),
+		})
+
+		onAfterCreate = jest.fn((record) => callbacks.push({ type: 'create', record }))
+		onAfterChange = jest.fn((from, to) => callbacks.push({ type: 'change', from, to }))
+		onAfterDelete = jest.fn((record) => callbacks.push({ type: 'delete', record }))
+		onOperationComplete = jest.fn(() => callbacks.push({ type: 'complete' }))
+		callbacks = []
+
+		store.sideEffects.registerAfterCreateHandler('book', onAfterCreate)
+		store.sideEffects.registerAfterChangeHandler('book', onAfterChange)
+		store.sideEffects.registerAfterDeleteHandler('book', onAfterDelete)
+		store.sideEffects.registerOperationCompleteHandler(onOperationComplete)
+	})
+
+	it('fires callbacks at the end of an `atomic` op', () => {
+		store.atomic(() => {
+			expect(callbacks).toHaveLength(0)
+
+			store.put([book1, book2])
+
+			expect(callbacks).toHaveLength(0)
+		})
+
+		expect(callbacks).toMatchObject([
+			{ type: 'create', record: { id: book1Id } },
+			{ type: 'create', record: { id: book2Id } },
+			{ type: 'complete' },
+		])
+	})
+
+	it('doesnt fire callback for a record created then deleted', () => {
+		store.atomic(() => {
+			store.put([book1])
+			store.remove([book1Id])
+		})
+		expect(callbacks).toMatchObject([{ type: 'complete' }])
+	})
+
+	it('bails out if too many callbacks are fired', () => {
+		let limit = 10
+		onAfterCreate.mockImplementation((record) => {
+			if (record.numPages < limit) {
+				store.put([{ ...record, numPages: record.numPages + 1 }])
+			}
+		})
+		onAfterChange.mockImplementation((from, to) => {
+			if (to.numPages < limit) {
+				store.put([{ ...to, numPages: to.numPages + 1 }])
+			}
+		})
+
+		// this should be fine:
+		store.put([book1])
+		expect(store.get(book1Id)!.numPages).toBe(limit)
+
+		// if we increase the limit thought, it should crash:
+		limit = 10000
+		store.clear()
+		expect(() => {
+			store.put([book2])
+		}).toThrowErrorMatchingInlineSnapshot(`"Maximum store update depth exceeded, bailing out"`)
+	})
+
+	it('keeps firing operation complete callbacks until all are cleared', () => {
+		// steps:
+		// 0, 1, 2: after change increment pages
+		// 3: after change, do nothing
+		// 4: operation complete, increment pages by 1000
+		// 5, 6: after change increment pages
+		// 7: after change, do nothing
+		// 8: operation complete, do nothing
+		// 9: done!
+		let step = 0
+
+		store.put([book1])
+
+		onAfterChange.mockImplementation((prev, next) => {
+			if ([0, 1, 2, 5, 6].includes(step)) {
+				step++
+				store.put([{ ...next, numPages: next.numPages + 1 }])
+			} else if ([3, 7].includes(step)) {
+				step++
+			} else {
+				throw new Error(`Wrong step: ${step}`)
+			}
+		})
+
+		onOperationComplete.mockImplementation(() => {
+			if (step === 4) {
+				step++
+				const book = store.get(book1Id)!
+				store.put([{ ...book, numPages: book.numPages + 1000 }])
+			} else if (step === 8) {
+				step++
+			} else {
+				throw new Error(`Wrong step: ${step}`)
+			}
+		})
+
+		store.put([{ ...book1, numPages: 2 }])
+
+		expect(store.get(book1Id)!.numPages).toBe(1007)
+		expect(step).toBe(9)
 	})
 })

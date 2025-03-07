@@ -1,3 +1,4 @@
+import { describe } from 'node:test'
 import { createTLStore } from '../config/createTLStore'
 import { Editor } from '../editor/Editor'
 import { StateNode } from '../editor/tools/StateNode'
@@ -15,8 +16,8 @@ class B extends StateNode {
 class C extends StateNode {
 	static override id = 'C'
 
-	override onEnter = () => {
-		this.currentToolIdMask = 'A'
+	override onEnter() {
+		this.setCurrentToolIdMask('A')
 	}
 }
 
@@ -24,6 +25,7 @@ beforeEach(() => {
 	editor = new Editor({
 		initialState: 'A',
 		shapeUtils: [],
+		bindingUtils: [],
 		tools: [A, B, C],
 		store: createTLStore({ shapeUtils: [] }),
 		getContainer: () => document.body,
@@ -32,16 +34,16 @@ beforeEach(() => {
 
 describe('current tool id mask', () => {
 	it('starts with the correct tool id', () => {
-		expect(editor.currentToolId).toBe('A')
+		expect(editor.getCurrentToolId()).toBe('A')
 	})
 
 	it('updates the current tool id', () => {
 		editor.setCurrentTool('B')
-		expect(editor.currentToolId).toBe('B')
+		expect(editor.getCurrentToolId()).toBe('B')
 	})
 
 	it('masks the current tool id', () => {
 		editor.setCurrentTool('C')
-		expect(editor.currentToolId).toBe('A')
+		expect(editor.getCurrentToolId()).toBe('A')
 	})
 })

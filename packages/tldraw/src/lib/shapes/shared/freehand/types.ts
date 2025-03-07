@@ -1,4 +1,4 @@
-import { Vec2d } from '@tldraw/editor'
+import { Vec } from '@tldraw/editor'
 
 /**
  * The options object for `getStroke` or `getStrokePoints`.
@@ -14,20 +14,20 @@ export interface StrokeOptions {
 	smoothing?: number
 	streamline?: number
 	/** An easing function to apply to each point's pressure. */
-	easing?: (pressure: number) => number
+	easing?(pressure: number): number
 	/** Whether to simulate pressure based on velocity. */
 	simulatePressure?: boolean
 	/** Cap, taper and easing for the start of the line. */
 	start?: {
 		cap?: boolean
 		taper?: number | boolean
-		easing?: (distance: number) => number
+		easing?(distance: number): number
 	}
 	/** Cap, taper and easing for the end of the line. */
 	end?: {
 		cap?: boolean
 		taper?: number | boolean
-		easing?: (distance: number) => number
+		easing?(distance: number): number
 	}
 	/** Whether to handle the points as a completed stroke. */
 	last?: boolean
@@ -39,9 +39,9 @@ export interface StrokeOptions {
  * @public
  */
 export interface StrokePoint {
-	point: Vec2d
-	input: Vec2d
-	vector: Vec2d
+	point: Vec
+	input: Vec
+	vector: Vec
 	pressure: number
 	distance: number
 	runningLength: number

@@ -1,4 +1,4 @@
-import { TLShape, createShapeId } from '@tldraw/editor'
+import { TLGeoShape, TLShape, createShapeId, toRichText } from '@tldraw/editor'
 import { TestEditor } from './TestEditor'
 
 let editor: TestEditor
@@ -146,7 +146,11 @@ describe('with hitLabels=true', () => {
 	it('hits geo shape label behind overlapping hollow shape', () => {
 		// label is empty
 		expect(editor.getShapeAtPoint({ x: 350, y: 350 }, opts)?.id).toBe(ids.box3)
-		editor.updateShape({ id: ids.box2, type: 'geo', props: { text: 'hello' } })
+		editor.updateShape<TLGeoShape>({
+			id: ids.box2,
+			type: 'geo',
+			props: { richText: toRichText('hello') },
+		})
 		expect(editor.getShapeAtPoint({ x: 350, y: 350 }, opts)?.id).toBe(ids.box2)
 	})
 })
@@ -164,5 +168,47 @@ describe('with filter', () => {
 
 	it('misses filtered out', () => {
 		expect(editor.getShapeAtPoint({ x: 310, y: 310 }, opts)?.id).toBe(undefined)
+	})
+})
+
+describe('frames', () => {
+	it('hits frame label', () => {
+		editor
+			.selectAll()
+			.deleteShapes(editor.getSelectedShapes())
+			.createShape({
+				type: 'frame',
+				x: 100,
+				y: 100,
+			})
+			.pointerMove(-100, -100)
+
+		const frame = editor.getLastCreatedShape()
+
+		expect(editor.getHoveredShapeId()).toBe(null)
+
+		editor.pointerMove(100, 90)
+
+		expect(editor.getHoveredShapeId()).toBe(frame.id)
+
+		editor.pointerDown().pointerUp()
+
+		expect(editor.getOnlySelectedShape()).toBe(frame)
+		expect(editor.getEditingShape()).toBe(undefined)
+	})
+
+	it('edits frame label', () => {
+		editor.selectAll().deleteShapes(editor.getSelectedShapes()).createShape({
+			type: 'frame',
+			x: 100,
+			y: 100,
+		})
+
+		const frame = editor.getLastCreatedShape()
+
+		editor.pointerMove(100, 90).doubleClick()
+
+		expect(editor.getOnlySelectedShape()).toBe(frame)
+		expect(editor.getEditingShape()).toBe(frame)
 	})
 })

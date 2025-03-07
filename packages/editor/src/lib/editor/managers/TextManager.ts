@@ -1,5 +1,4 @@
-import { Box2dModel, TLDefaultHorizontalAlignStyle } from '@tldraw/tlschema'
-import { uniqueId } from '../../utils/uniqueId'
+import { BoxModel, TLDefaultHorizontalAlignStyle } from '@tldraw/tlschema'
 import { Editor } from '../Editor'
 
 const fixNewLines = /\r?\n|\r/g
@@ -21,9 +20,9 @@ const textAlignmentsForLtr = {
 	'end-legacy': 'right',
 }
 
-type TLOverflowMode = 'wrap' | 'truncate-ellipsis' | 'truncate-clip'
-type TLMeasureTextSpanOpts = {
-	overflow: TLOverflowMode
+/** @public */
+export interface TLMeasureTextSpanOpts {
+	overflow: 'wrap' | 'truncate-ellipsis' | 'truncate-clip'
 	width: number
 	height: number
 	padding: number
@@ -37,25 +36,18 @@ type TLMeasureTextSpanOpts = {
 
 const spaceCharacterRegex = /\s/
 
+/** @public */
 export class TextManager {
-	constructor(public editor: Editor) {}
+	private baseElem: HTMLDivElement
 
-	private getTextElement() {
-		const oldElm = document.querySelector('.tl-text-measure')
-		oldElm?.remove()
-
-		const elm = document.createElement('div')
-		this.editor.getContainer().appendChild(elm)
-
-		elm.id = `__textMeasure_${uniqueId()}`
-		elm.classList.add('tl-text')
-		elm.classList.add('tl-text-measure')
-		elm.tabIndex = -1
-
-		return elm
+	constructor(public editor: Editor) {
+		this.baseElem = document.createElement('div')
+		this.baseElem.classList.add('tl-text')
+		this.baseElem.classList.add('tl-text-measure')
+		this.baseElem.tabIndex = -1
 	}
 
-	measureText = (
+	measureText(
 		textToMeasure: string,
 		opts: {
 			fontStyle: string
@@ -69,30 +61,68 @@ export class TextManager {
 			 * space are preserved.
 			 */
 			maxWidth: null | number
-			minWidth?: string
+			minWidth?: null | number
 			padding: string
+			disableOverflowWrapBreaking?: boolean
 		}
-	): Box2dModel => {
-		const elm = this.getTextElement()
+	): BoxModel & { scrollWidth: number } {
+		const div = document.createElement('div')
+		div.textContent = normalizeTextForDom(textToMeasure)
+		return this.measureHtml(div.innerHTML, opts)
+	}
 
-		elm.setAttribute('dir', 'ltr')
-		elm.style.setProperty('font-family', opts.fontFamily)
-		elm.style.setProperty('font-style', opts.fontStyle)
-		elm.style.setProperty('font-weight', opts.fontWeight)
-		elm.style.setProperty('font-size', opts.fontSize + 'px')
-		elm.style.setProperty('line-height', opts.lineHeight * opts.fontSize + 'px')
-		elm.style.setProperty('max-width', opts.maxWidth === null ? null : opts.maxWidth + 'px')
-		elm.style.setProperty('min-width', opts.minWidth ?? null)
-		elm.style.setProperty('padding', opts.padding)
+	measureHtml(
+		html: string,
+		opts: {
+			fontStyle: string
+			fontWeight: string
+			fontFamily: string
+			fontSize: number
+			lineHeight: number
+			/**
+			 * When maxWidth is a number, the text will be wrapped to that maxWidth. When maxWidth
+			 * is null, the text will be measured without wrapping, but explicit line breaks and
+			 * space are preserved.
+			 */
+			maxWidth: null | number
+			minWidth?: null | number
+			padding: string
+			disableOverflowWrapBreaking?: boolean
+		}
+	): BoxModel & { scrollWidth: number } {
+		// Duplicate our base element; we don't need to clone deep
+		const wrapperElm = this.baseElem.cloneNode() as HTMLDivElement
+		this.editor.getContainer().appendChild(wrapperElm)
+		wrapperElm.innerHTML = html
+		this.baseElem.insertAdjacentElement('afterend', wrapperElm)
 
-		elm.textContent = normalizeTextForDom(textToMeasure)
-		const rect = elm.getBoundingClientRect()
+		wrapperElm.setAttribute('dir', 'auto')
+		// N.B. This property, while discouraged ("intended for Document Type Definition (DTD) designers")
+		// is necessary for ensuring correct mixed RTL/LTR behavior when exporting SVGs.
+		wrapperElm.style.setProperty('unicode-bidi', 'plaintext')
+		wrapperElm.style.setProperty('font-family', opts.fontFamily)
+		wrapperElm.style.setProperty('font-style', opts.fontStyle)
+		wrapperElm.style.setProperty('font-weight', opts.fontWeight)
+		wrapperElm.style.setProperty('font-size', opts.fontSize + 'px')
+		wrapperElm.style.setProperty('line-height', opts.lineHeight * opts.fontSize + 'px')
+		wrapperElm.style.setProperty('max-width', opts.maxWidth === null ? null : opts.maxWidth + 'px')
+		wrapperElm.style.setProperty('min-width', opts.minWidth === null ? null : opts.minWidth + 'px')
+		wrapperElm.style.setProperty('padding', opts.padding)
+		wrapperElm.style.setProperty(
+			'overflow-wrap',
+			opts.disableOverflowWrapBreaking ? 'normal' : 'break-word'
+		)
+
+		const scrollWidth = wrapperElm.scrollWidth
+		const rect = wrapperElm.getBoundingClientRect()
+		wrapperElm.remove()
 
 		return {
 			x: 0,
 			y: 0,
 			w: rect.width,
 			h: rect.height,
+			scrollWidth,
 		}
 	}
 
@@ -103,7 +133,7 @@ export class TextManager {
 	measureElementTextNodeSpans(
 		element: HTMLElement,
 		{ shouldTruncateToFirstLine = false }: { shouldTruncateToFirstLine?: boolean } = {}
-	): { spans: { box: Box2dModel; text: string }[]; didTruncate: boolean } {
+	): { spans: { box: BoxModel; text: string }[]; didTruncate: boolean } {
 		const spans = []
 
 		// Measurements of individual spans are relative to the containing element
@@ -119,6 +149,7 @@ export class TextManager {
 		let currentSpan = null
 		let prevCharWasSpaceCharacter = null
 		let prevCharTop = 0
+		let prevCharLeftForRTLTest = 0
 		let didTruncate = false
 		for (const childNode of element.childNodes) {
 			if (childNode.nodeType !== Node.TEXT_NODE) continue
@@ -137,6 +168,7 @@ export class TextManager {
 				const top = rect.top + offsetY
 				const left = rect.left + offsetX
 				const right = rect.right + offsetX
+				const isRTL = left < prevCharLeftForRTLTest
 
 				const isSpaceCharacter = spaceCharacterRegex.test(char)
 				if (
@@ -164,10 +196,20 @@ export class TextManager {
 						box: { x: left, y: top, w: rect.width, h: rect.height },
 						text: char,
 					}
+					prevCharLeftForRTLTest = left
 				} else {
+					// Looks like we're in RTL mode, so we need to adjust the left position.
+					if (isRTL) {
+						currentSpan.box.x = left
+					}
+
 					// otherwise we just need to extend the current span with the next character
-					currentSpan.box.w = right - currentSpan.box.x
+					currentSpan.box.w = isRTL ? currentSpan.box.w + rect.width : right - currentSpan.box.x
 					currentSpan.text += char
+				}
+
+				if (char === '\n') {
+					prevCharLeftForRTLTest = 0
 				}
 
 				prevCharWasSpaceCharacter = isSpaceCharacter
@@ -195,48 +237,53 @@ export class TextManager {
 	measureTextSpans(
 		textToMeasure: string,
 		opts: TLMeasureTextSpanOpts
-	): { text: string; box: Box2dModel }[] {
+	): { text: string; box: BoxModel }[] {
 		if (textToMeasure === '') return []
+
+		const elm = this.baseElem.cloneNode() as HTMLDivElement
+		this.editor.getContainer().appendChild(elm)
+
+		const elementWidth = Math.ceil(opts.width - opts.padding * 2)
+		elm.setAttribute('dir', 'auto')
+		// N.B. This property, while discouraged ("intended for Document Type Definition (DTD) designers")
+		// is necessary for ensuring correct mixed RTL/LTR behavior when exporting SVGs.
+		elm.style.setProperty('unicode-bidi', 'plaintext')
+		elm.style.setProperty('width', `${elementWidth}px`)
+		elm.style.setProperty('height', 'min-content')
+		elm.style.setProperty('font-size', `${opts.fontSize}px`)
+		elm.style.setProperty('font-family', opts.fontFamily)
+		elm.style.setProperty('font-weight', opts.fontWeight)
+		elm.style.setProperty('line-height', `${opts.lineHeight * opts.fontSize}px`)
+		elm.style.setProperty('text-align', textAlignmentsForLtr[opts.textAlign])
+		elm.style.setProperty('font-style', opts.fontStyle)
 
 		const shouldTruncateToFirstLine =
 			opts.overflow === 'truncate-ellipsis' || opts.overflow === 'truncate-clip'
 
-		// Create a measurement element:
-		const element = this.getTextElement()
-		const elementWidth = Math.ceil(opts.width - opts.padding * 2)
-		element.style.setProperty('width', `${elementWidth}px`)
-		element.style.setProperty('height', 'min-content')
-		element.style.setProperty('dir', 'ltr')
-		element.style.setProperty('font-size', `${opts.fontSize}px`)
-		element.style.setProperty('font-family', opts.fontFamily)
-		element.style.setProperty('font-weight', opts.fontWeight)
-		element.style.setProperty('line-height', `${opts.lineHeight * opts.fontSize}px`)
-		element.style.setProperty('text-align', textAlignmentsForLtr[opts.textAlign])
-
 		if (shouldTruncateToFirstLine) {
-			element.style.setProperty('overflow-wrap', 'anywhere')
-			element.style.setProperty('word-break', 'break-all')
+			elm.style.setProperty('overflow-wrap', 'anywhere')
+			elm.style.setProperty('word-break', 'break-all')
 		}
 
-		textToMeasure = normalizeTextForDom(textToMeasure)
+		const normalizedText = normalizeTextForDom(textToMeasure)
 
 		// Render the text into the measurement element:
-		element.textContent = textToMeasure
+		elm.textContent = normalizedText
 
 		// actually measure the text:
-		const { spans, didTruncate } = this.measureElementTextNodeSpans(element, {
+		const { spans, didTruncate } = this.measureElementTextNodeSpans(elm, {
 			shouldTruncateToFirstLine,
 		})
 
 		if (opts.overflow === 'truncate-ellipsis' && didTruncate) {
 			// we need to measure the ellipsis to know how much space it takes up
-			element.textContent = '…'
-			const ellipsisWidth = Math.ceil(this.measureElementTextNodeSpans(element).spans[0].box.w)
+			elm.textContent = '…'
+			const ellipsisWidth = Math.ceil(this.measureElementTextNodeSpans(elm).spans[0].box.w)
 
 			// then, we need to subtract that space from the width we have and measure again:
-			element.style.setProperty('width', `${elementWidth - ellipsisWidth}px`)
-			element.textContent = textToMeasure
-			const truncatedSpans = this.measureElementTextNodeSpans(element, {
+			elm.style.setProperty('width', `${elementWidth - ellipsisWidth}px`)
+			elm.textContent = normalizedText
+			const truncatedSpans = this.measureElementTextNodeSpans(elm, {
 				shouldTruncateToFirstLine: true,
 			}).spans
 
@@ -257,7 +304,7 @@ export class TextManager {
 			return truncatedSpans
 		}
 
-		element.remove()
+		elm.remove()
 
 		return spans
 	}

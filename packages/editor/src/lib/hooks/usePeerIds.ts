@@ -1,26 +1,20 @@
-import { useComputed, useValue } from '@tldraw/state'
-import { useMemo } from 'react'
+import { useComputed, useValue } from '@tldraw/state-react'
 import { uniq } from '../utils/uniq'
 import { useEditor } from './useEditor'
 
 // TODO: maybe move this to a computed property on the App class?
 /**
  * @returns The list of peer UserIDs
- * @internal
+ * @public
  */
 export function usePeerIds() {
 	const editor = useEditor()
-	const $presences = useMemo(() => {
-		return editor.store.query.records('instance_presence', () => ({
-			userId: { neq: editor.user.id },
-		}))
-	}, [editor])
 
 	const $userIds = useComputed(
 		'userIds',
-		() => uniq($presences.value.map((p) => p.userId)).sort(),
+		() => uniq(editor.getCollaborators().map((p) => p.userId)).sort(),
 		{ isEqual: (a, b) => a.join(',') === b.join?.(',') },
-		[$presences]
+		[editor]
 	)
 
 	return useValue($userIds)

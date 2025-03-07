@@ -29,13 +29,13 @@ function sharedStyleEquals<T>(a: SharedStyle<T>, b: SharedStyle<T> | undefined) 
 
 /**
  * A map of {@link @tldraw/tlschema#StyleProp | StyleProps} to their {@link SharedStyle} values. See
- * {@link Editor.sharedStyles}.
+ * {@link Editor.getSharedStyles}.
  *
  * @public
  */
 export class ReadonlySharedStyleMap {
 	/** @internal */
-	protected map: Map<StyleProp<unknown>, SharedStyle<unknown>>
+	protected map: Map<StyleProp<any>, SharedStyle<unknown>>
 
 	constructor(entries?: Iterable<[StyleProp<unknown>, SharedStyle<unknown>]>) {
 		this.map = new Map(entries)
@@ -52,6 +52,7 @@ export class ReadonlySharedStyleMap {
 		return value.value
 	}
 
+	// eslint-disable-next-line no-restricted-syntax
 	get size() {
 		return this.map.size
 	}

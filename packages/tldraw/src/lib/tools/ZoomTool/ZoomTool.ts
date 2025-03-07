@@ -1,36 +1,41 @@
-import { StateNode, TLInterruptEvent, TLKeyboardEvent, TLPointerEventInfo } from '@tldraw/editor'
-import { Idle } from './children/Idle'
-import { Pointing } from './children/Pointing'
-import { ZoomBrushing } from './children/ZoomBrushing'
+import {
+	StateNode,
+	TLKeyboardEventInfo,
+	TLPointerEventInfo,
+	TLStateNodeConstructor,
+} from '@tldraw/editor'
+import { Idle } from './childStates/Idle'
+import { Pointing } from './childStates/Pointing'
+import { ZoomBrushing } from './childStates/ZoomBrushing'
 
 /** @public */
 export class ZoomTool extends StateNode {
 	static override id = 'zoom'
 	static override initial = 'idle'
-	static override children = () => [Idle, ZoomBrushing, Pointing]
+	static override children(): TLStateNodeConstructor[] {
+		return [Idle, ZoomBrushing, Pointing]
+	}
+	static override isLockable = false
 
 	info = {} as TLPointerEventInfo & { onInteractionEnd?: string }
 
-	override onEnter = (info: TLPointerEventInfo & { onInteractionEnd: string }) => {
+	override onEnter(info: TLPointerEventInfo & { onInteractionEnd: string }) {
 		this.info = info
-		this.currentToolIdMask = info.onInteractionEnd
+		this.parent.setCurrentToolIdMask(info.onInteractionEnd)
 		this.updateCursor()
 	}
 
-	override onExit = () => {
-		this.currentToolIdMask = undefined
-		this.editor.updateInstanceState(
-			{ zoomBrush: null, cursor: { type: 'default', rotation: 0 } },
-			{ ephemeral: true }
-		)
-		this.currentToolIdMask = undefined
+	override onExit() {
+		this.parent.setCurrentToolIdMask(undefined)
+		this.editor.updateInstanceState({ zoomBrush: null, cursor: { type: 'default', rotation: 0 } })
+		this.parent.setCurrentToolIdMask(undefined)
 	}
 
-	override onKeyDown: TLKeyboardEvent | undefined = () => {
+	override onKeyDown() {
 		this.updateCursor()
 	}
 
-	override onKeyUp: TLKeyboardEvent = (info) => {
+	override onKeyUp(info: TLKeyboardEventInfo) {
 		this.updateCursor()
 
 		if (info.code === 'KeyZ') {
@@ -38,7 +43,7 @@ export class ZoomTool extends StateNode {
 		}
 	}
 
-	override onInterrupt: TLInterruptEvent = () => {
+	override onInterrupt() {
 		this.complete()
 	}
 
@@ -47,21 +52,15 @@ export class ZoomTool extends StateNode {
 		if (this.info.onInteractionEnd && this.info.onInteractionEnd !== 'select') {
 			this.editor.setCurrentTool(this.info.onInteractionEnd, this.info)
 		} else {
-			this.parent.transition('select', {})
+			this.parent.transition('select')
 		}
 	}
 
 	private updateCursor() {
 		if (this.editor.inputs.altKey) {
-			this.editor.updateInstanceState(
-				{ cursor: { type: 'zoom-out', rotation: 0 } },
-				{ ephemeral: true }
-			)
+			this.editor.setCursor({ type: 'zoom-out', rotation: 0 })
 		} else {
-			this.editor.updateInstanceState(
-				{ cursor: { type: 'zoom-in', rotation: 0 } },
-				{ ephemeral: true }
-			)
+			this.editor.setCursor({ type: 'zoom-in', rotation: 0 })
 		}
 	}
 }
